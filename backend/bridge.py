@@ -5,12 +5,14 @@ asset_service, and pywebview native desktop dialogs.
 """
 
 import os
+import time
 from typing import Any, Dict, List, Optional
 import webview
 
 from . import asset_service
 from . import config_service
 from . import file_service
+from . import print_service
 
 
 class DesktopBridge:
@@ -24,6 +26,7 @@ class DesktopBridge:
         self.window = None
         self.initial_file = os.path.abspath(initial_file) if initial_file else None
         self.project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self._pdf_export_state = None
 
     def set_window(self, window):
         """Bind the active pywebview window instance."""
@@ -108,6 +111,70 @@ class DesktopBridge:
         self, current_md_path: str, filename: str, base64_data: str
     ) -> Dict[str, Any]:
         return asset_service.save_clipboard_image(current_md_path, filename, base64_data)
+
+    def export_pdf(
+        self, default_name: str = "document.pdf", target_path: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Start exporting the current document to a paginated A4 PDF file.
+
+        The print operation itself runs on the Cocoa main thread right after
+        this bridge call returns: running NSPrintOperation inside a WebKit
+        script-message handler deadlocks or corrupts pagination. The UI polls
+        get_pdf_export_result() for the final outcome.
+        """
+        if not self.window:
+            return {"ok": False, "error": "Native window not attached"}
+
+        try:
+            save_name = (default_name or "document.pdf").strip() or "document.pdf"
+            if not save_name.lower().endswith(".pdf"):
+                save_name += ".pdf"
+
+            resolved_path = target_path
+            if not resolved_path:
+                result = self.window.create_file_dialog(
+                    webview.SAVE_DIALOG,
+                    save_filename=save_name,
+                    file_types=("PDF Files (*.pdf)",),
+                )
+                if not result:
+                    return {"ok": False, "error": "Cancelled by user"}
+                resolved_path = result[0] if isinstance(result, (list, tuple)) else result
+
+            abs_path = os.path.abspath(os.path.expanduser(resolved_path))
+            if not abs_path.lower().endswith(".pdf"):
+                abs_path += ".pdf"
+
+            self._pdf_export_state = {
+                "status": "running",
+                "path": abs_path,
+                "started_at": time.time(),
+                "result": None,
+            }
+
+            import threading
+
+            def _run_export() -> None:
+                outcome = print_service.export_pdf(self.window, abs_path)
+                self._pdf_export_state = {
+                    "status": "done" if outcome.get("ok") else "error",
+                    "path": abs_path,
+                    "started_at": time.time(),
+                    "result": outcome,
+                }
+
+            # Run off the Cocoa main run-loop thread (see print_service notes).
+            threading.Thread(target=_run_export, daemon=True).start()
+            return {"ok": True, "data": {"path": abs_path, "status": "running"}}
+        except Exception as e:
+            return {"ok": False, "error": "PDF export dialog error: " + str(e)}
+
+    def get_pdf_export_result(self) -> Dict[str, Any]:
+        """Return the state of the most recent PDF export (polled by the UI)."""
+        state = self._pdf_export_state
+        if not state:
+            return {"ok": True, "data": {"status": "idle"}}
+        return {"ok": True, "data": state}
 
     def export_standalone_html(
         self,

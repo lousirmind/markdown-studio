@@ -456,6 +456,24 @@
     async exportHtmlDialog(defaultName, htmlContent) {
       return callBridge('exportHtmlDialog', defaultName, htmlContent);
     },
+
+    /**
+     * Export the current document to a paginated A4 PDF file.
+     * @param {string} defaultName Suggested file name
+     * @param {string} [targetPath] Optional absolute path (used by tests to skip the dialog)
+     * @returns {Promise<{ success: boolean, path?: string, pages?: number, error?: string }>}
+     */
+    async exportPdf(defaultName, targetPath) {
+      return callBridge('exportPdf', defaultName, targetPath || null);
+    },
+
+    /**
+     * Poll the state of the most recent PDF export.
+     * @returns {Promise<{ success: boolean, status?: string, result?: object }>}
+     */
+    async getPdfExportResult() {
+      return callBridge('getPdfExportResult');
+    },
   };
 
   window.BridgeClient = BridgeClient;

@@ -9,6 +9,7 @@ import os
 import sys
 import time
 import json
+import tempfile
 import webview
 
 from backend.bridge import DesktopBridge
@@ -249,7 +250,55 @@ def run_e2e_tests(window):
             f"--md-font-size: {font_size_css}",
         )
 
-        # 12. Check for uncaught JS errors
+        # 12. Native PDF export (A4 pagination via WKWebView print pipeline)
+        pdf_path = os.path.join(tempfile.gettempdir(), "markdown_studio_e2e.pdf")
+        if os.path.exists(pdf_path):
+            try:
+                os.remove(pdf_path)
+            except OSError:
+                pass
+        window.evaluate_js("window.EditorEngine.setMode('reader')")
+        time.sleep(2.0)
+        window.evaluate_js(
+            "(() => { window.__e2ePdf = null;"
+            " window.pywebview.api.export_pdf('e2e.pdf', " + json.dumps(pdf_path) + ").then(() => {"
+            "  const poll = () => window.pywebview.api.get_pdf_export_result().then(st => {"
+            "   const s = (st && st.data) || st || {};"
+            "   if (s.status === 'running' || s.status === 'idle') { setTimeout(poll, 150); }"
+            "   else { window.__e2ePdf = s; }"
+            "  });"
+            "  poll();"
+            " }); return 1; })()"
+        )
+        pdf_result = None
+        for _ in range(240):
+            time.sleep(0.25)
+            raw = window.evaluate_js("window.__e2ePdf ? JSON.stringify(window.__e2ePdf) : null")
+            if raw:
+                pdf_result = json.loads(raw)
+                break
+        pdf_size = os.path.getsize(pdf_path) if os.path.exists(pdf_path) else 0
+        pdf_pages = 0
+        try:
+            from AppKit import NSURL
+            from Quartz import PDFDocument
+            pdf_doc = PDFDocument.alloc().initWithURL_(NSURL.fileURLWithPath_(pdf_path))
+            pdf_pages = int(pdf_doc.pageCount()) if pdf_doc else 0
+        except Exception:
+            pass
+        log_test(
+            "Native PDF Export (A4 pagination)",
+            bool(pdf_result) and pdf_result.get("status") == "done" and pdf_size > 10000 and pdf_pages >= 1,
+            f"{pdf_size} bytes, {pdf_pages} pages",
+        )
+        window.evaluate_js("window.EditorEngine.setMode('ir')")
+        time.sleep(0.5)
+        try:
+            os.remove(pdf_path)
+        except OSError:
+            pass
+
+        # 13. Check for uncaught JS errors
         js_errors = window.evaluate_js(
             "window.__test_js_errors || []"
         ) or []

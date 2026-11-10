@@ -36,6 +36,7 @@
 │   ├── config_service.py                # 用户偏好设置持久化服务 (96 行)
 │   ├── file_service.py                  # 本地文件与工作区目录树 IO 服务 (294 行)
 │   ├── asset_service.py                 # 剪贴板图片保存与独立 HTML 导出服务 (257 行)
+│   ├── print_service.py                 # 原生 PDF 导出（WKWebView NSPrintOperation，A4 分页）
 │   └── bridge.py                        # PyWebView 统一 API 门面 Facade (187 行)
 ├── frontend/                            # 前端 Web 应用层
 │   ├── index.html                       # 桌面应用单页结构骨架 (298 行)
@@ -137,6 +138,8 @@ flowchart TD
 | `export_standalone_html`| `(target_path: str, title: str, body_html: str, theme_css="", custom_css="")` | `{"path": str}` | 导出完全自包含样式与 KaTeX 的独立单文件 HTML |
 | `load_preferences` | `()` | 用户偏好字典 | 读取 `~/.markdown_studio_prefs.json` |
 | `save_preferences` | `(prefs: dict)` | 保存后的偏好字典 | 原子持久化偏好设置到用户目录 |
+| `export_pdf` | `(default_name, target_path=None)` | `{"path", "status": "running"}` | 启动原生 PDF 导出（A4 分页）；target_path 仅供自动化测试跳过保存对话框 |
+| `get_pdf_export_result` | `()` | `{"status", "path", "result": {"ok", "data": {"path", "size", "pages"}}}` | 轮询 PDF 导出状态与结果 |
 | `select_file_dialog` | `()` | `{"path": str}` | 调起 macOS 原生文件选择对话框（支持取消检测） |
 | `select_folder_dialog`| `()` | `{"path": str}` | 调起 macOS 原生工作区文件夹选择对话框 |
 | `export_html_dialog` | `(default_name: str, html_content: str)` | `{"path": str}` | 调起 macOS 原生保存文件对话框并触发自包含 HTML 写入 |
@@ -247,7 +250,7 @@ flowchart TD
 | **剪贴板截图本地落盘** | 编辑器内直接 `Cmd + V` 粘贴剪贴板图片，自动解码并在当前文档同级创建 `./assets/` 存放 PNG 图片，并自动在光标处插入 Markdown 相对路径。 | `DesktopBridge.save_clipboard_image` + `EditorEngine` 剪贴板拦截。 |
 | **外观与排版设置系统** | 侧边抽屉提供：主题切换（跟随系统/明亮/暗黑）、5 种代码高亮主题、3 种字体（无衬线/衬线/等宽）、正文字号（13~24px）、版心最大宽度（800px~100%）、居中排版开关、自定义 CSS 注入。 | `Appearance` 模块动态更新 CSS 变量并持久化至 `~/.markdown_studio_prefs.json`。 |
 | **全屏图片画廊灯箱** | 单击正文图片调起全屏灯箱，支持鼠标滚轮无级缩放（0.2x~5x）、鼠标拖拽平移、原图 1:1 复位、多图翻页导航（上一张/下一张）与底部缩略图导航。 | `Lightbox` 模块实现独立画布与交互。 |
-| **导出能力与全局快捷键** | 1. 导出独立 HTML（内嵌样式与公式 CSS，脱网任意浏览器可完美查看）；<br>2. 调起系统原生打印对话框保存高清矢量 PDF；<br>3. 原生快捷键：`Cmd+S` (保存), `Cmd+O` (打开), `Cmd+B` (侧边栏), `Cmd+E` (阅读/编辑切换), `Cmd+,` (设置)。 | `ExporterStatus` 模块驱动。 |
+| **导出能力与全局快捷键** | 1. 导出独立 HTML（内嵌样式与公式 CSS，脱网任意浏览器可完美查看）；<br>2. **原生 PDF 导出**：经 WKWebView `NSPrintOperation` 直接落盘 A4 分页 PDF，自动切换阅读排版并隐藏界面 chrome，保留 KaTeX 公式 / Mermaid 图表 / data URL 图片，全过程无系统打印面板；<br>3. 原生快捷键：`Cmd+S` (保存), `Cmd+O` (打开), `Cmd+B` (侧边栏), `Cmd+E` (阅读/编辑切换), `Cmd+,` (设置)。 | `ExporterStatus` 模块驱动，`print_service.py` 负责原生分页。 |
 
 ---
 
@@ -379,3 +382,25 @@ pyinstaller --noconfirm --onedir --windowed \
   main.py
 ```
 打包完成后，产物将生成在 `dist/MarkdownStudio.app`，可直接拖入 `/Applications` 文件夹运行。
+### 坑 7：WKWebView 打印 / PDF 操作不能在主 RunLoop 线程里调用
+- **现象**：在 bridge 的 JS 消息处理器里直接调用 `WKWebView.printOperationWithPrintInfo_().runOperation()`，或经 `AppHelper.callAfter` 派发到 Cocoa 主线程执行，都会卡死并持续写出超大 PDF（实测 0.5~1GB）。
+- **原因**：WKWebView 的打印操作需要在自己的线程上下文里完成分页；在 Cocoa 主 RunLoop 线程中重入会与 WebKit 内部渲染循环互锁。
+- **解决方案**：`print_service.export_pdf()` 改由 bridge 启动一个短生命周期 daemon 线程执行打印，bridge 立即返回；前端轮询 `get_pdf_export_result()` 获取 `{status, result}`。该方案在 welcome.md（6 页）、HANDOVER.md（18 页）、LaTeX 夹具（2 页）上稳定通过。
+
+---
+
+## 7. Phase 7：显示与性能修复记录（2026-11）
+
+本轮修复与优化均有自动化验收（`/tmp/verify_mdstudio.py`、`test_e2e.py`、HANDOVER/LaTeX 渲染测试、PDF 导出测试）：
+
+| 类别 | 问题 | 修复方式 |
+| :--- | :--- | :--- |
+| 显示 | 纯阅读模式白屏 | 改用 `.hidden` 类控制显隐，避免 `display:none !important` 压过内联 flex |
+| 显示 | 设置抽屉打不开 | 同步切换 hidden/open/active 并补齐 open 态样式 |
+| 显示 | 本地图片全部裂图 | 新增 bridge `read_file_data_url`，图片经 data URL 嵌入，绕开 http 静态根与 file:// 限制 |
+| 显示 | 大纲树横向错乱 | 补齐 `.toc-item-row` / `.toc-children` 等层级样式 |
+| 显示 | 灯箱缩略图 / Toast / 文件树样式缺失 | 补齐组件样式与显隐类切换 |
+| 性能 | 打字链路 15ms/10 键 → 1ms/10 键 | 标签栏定向更新、状态栏 rAF 合并、TOC 260ms 合并 + 结构签名去重 |
+| 性能 | 模式切换销毁重建 Vditor | 复用单实例并经内部 edit-mode 菜单切换，toolbar 节点保持 |
+| 性能 | 偏好变更整页重渲染 | 阅读预览按内容 + 主题签名去重，字号/宽度仅改 CSS 变量 |
+| 功能 | 缺少真正的 PDF 落盘 | 新增 `print_service.py` 原生 A4 分页导出，前端轮询状态并提示页数 |

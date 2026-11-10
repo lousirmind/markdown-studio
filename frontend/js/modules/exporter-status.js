@@ -356,10 +356,136 @@
   }
 
   /**
-   * Export PDF via window.print()
+   * Switch to reader mode (the print layout) before native PDF export.
+   * Returns the previous mode so the caller can restore it afterwards.
    */
-  function handleExportPdf() {
-    window.print();
+  async function prepareReaderForPdfExport() {
+    const store = window.AppStore ? window.AppStore.getState() : {};
+    const prevMode = store.editorMode || 'ir';
+    if (prevMode === 'reader') return null;
+
+    await new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+
+      if (window.AppBus) {
+        const off = window.AppBus.on('editor:rendered', () => {
+          off();
+          finish();
+        });
+        window.AppBus.emit('editor:mode-change-request', { mode: 'reader' });
+      } else {
+        finish();
+      }
+
+      // Never block the export when the preview is slow.
+      setTimeout(finish, 3000);
+    });
+
+    // Let fonts, embedded images and layout settle before WebKit paginates.
+    await new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 150)));
+    });
+
+    return prevMode;
+  }
+
+  function restoreEditorMode(prevMode) {
+    if (!prevMode || prevMode === 'reader') return;
+    if (window.AppBus) {
+      window.AppBus.emit('editor:mode-change-request', { mode: prevMode });
+    }
+  }
+
+  /**
+   * Export the current document to a paginated A4 PDF through the native
+   * WKWebView print pipeline. Falls back to window.print() in browser mock mode.
+   */
+  async function handleExportPdf() {
+    const bridgeAvailable =
+      window.BridgeClient && typeof window.BridgeClient.exportPdf === 'function';
+
+    if (!bridgeAvailable) {
+      window.print();
+      return;
+    }
+
+    const activeTab = window.AppStore ? window.AppStore.getActiveTab() : null;
+    const docTitle = activeTab
+      ? (activeTab.name || 'document').replace(/\.(md|markdown|mdown|txt)$/i, '')
+      : 'document';
+    const defaultName = `${docTitle || 'document'}.pdf`;
+
+    let prevMode = null;
+    try {
+      prevMode = await prepareReaderForPdfExport();
+      const startRes = await window.BridgeClient.exportPdf(defaultName);
+      const started = startRes && (startRes.ok || startRes.success);
+      if (!started) {
+        const startError = (startRes && startRes.error) || '';
+        if (!/cancel/i.test(startError) && window.AppBus) {
+          window.AppBus.emit('notify:toast', {
+            message: startError || 'PDF 导出失败',
+            type: 'error',
+          });
+        }
+        return;
+      }
+
+      // Native printing runs on the Cocoa main thread after this bridge call
+      // returns; poll the export state instead of blocking the WebKit handler.
+      let finalRes = null;
+      if (typeof window.BridgeClient.getPdfExportResult === 'function') {
+        const deadline = Date.now() + 45000;
+        while (Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 150));
+          const polled = await window.BridgeClient.getPdfExportResult();
+          const state = (polled && (polled.data || polled)) || {};
+          if (state.status === 'done' || state.status === 'error') {
+            finalRes = state.result || state;
+            break;
+          }
+        }
+      }
+
+      const startData = (startRes.data || startRes) || {};
+      const data = finalRes ? (finalRes.data || finalRes) : startData;
+      const isOk = finalRes ? !!(finalRes.ok || finalRes.success) : false;
+      const errorMsg = (finalRes && finalRes.error) || (finalRes ? '' : 'PDF 导出超时');
+
+      if (isOk) {
+        const targetPath = data.path || startData.path || '';
+        const pages = data.pages;
+        const fileName = targetPath ? targetPath.split(/[/\\]/).pop() : defaultName;
+        if (window.AppBus) {
+          window.AppBus.emit('notify:toast', {
+            message: `PDF 已导出${pages ? `（${pages} 页）` : ''}: ${fileName}`,
+            type: 'success',
+          });
+        }
+      } else if (!/cancel/i.test(errorMsg)) {
+        if (window.AppBus) {
+          window.AppBus.emit('notify:toast', {
+            message: errorMsg || 'PDF 导出失败',
+            type: 'error',
+          });
+        }
+      }
+    } catch (err) {
+      console.error('[ExporterStatus] Export PDF error:', err);
+      if (window.AppBus) {
+        window.AppBus.emit('notify:toast', {
+          message: `PDF 导出失败: ${err.message || err}`,
+          type: 'error',
+        });
+      }
+    } finally {
+      restoreEditorMode(prevMode);
+    }
   }
 
   /**

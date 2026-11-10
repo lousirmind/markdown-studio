@@ -53,6 +53,7 @@ flowchart TD
 │   ├── config_service.py           # 用户偏好设置（~/.markdown_studio_prefs.json）
 │   ├── file_service.py             # 文件与目录树读写、原子写入、编码容错、mtime 检测
 │   ├── asset_service.py            # 剪贴板 Base64 图片解码保存至 ./assets、自包含 HTML 导出
+│   ├── print_service.py            # 原生 PDF 导出（WKWebView 打印管线，A4 分页）
 │   └── bridge.py                   # PyWebView 门面 Facade（统一暴露 API 与原生对话框）
 ├── frontend/                       # 前端渲染层
 │   ├── vendor/                     # 100% 完全离线第三方库
@@ -127,5 +128,6 @@ python3 test_e2e.py
   11. `[PASS]` 所见即所得（WYSIWYG）模式无缝切换
   12. `[PASS]` 即时渲染（IR）模式平滑回退与重新挂载
   13. `[PASS]` 外观偏好设置动态响应与 CSS 变量实时更新
-  14. `[PASS]` 全程零未捕获 JavaScript 运行时异常（Zero Uncaught Errors）
+  14. `[PASS]` 原生 PDF 导出（A4 分页、真实文件落盘、页数校验）
+  15. `[PASS]` 全程零未捕获 JavaScript 运行时异常（Zero Uncaught Errors）
 
