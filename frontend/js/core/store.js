@@ -79,6 +79,12 @@
 
     /**
      * Update active tab content and recalculate dirty state.
+     *
+     * Content/dirty state has a single owner: this method. Callers may reach it
+     * from several places (editor input, auto-save scheduling, checkbox
+     * toggles), so identical content is a no-op and emits no event. That keeps
+     * the keystroke path to one store write + one targeted tab-bar update.
+     *
      * @param {string} content
      * @returns {object|null} Updated active tab
      */
@@ -86,8 +92,13 @@
       const activeTab = this.getActiveTab();
       if (!activeTab) return null;
 
+      const nextContent = typeof content === 'string' ? content : '';
+      if (activeTab.content === nextContent) {
+        return activeTab;
+      }
+
       const prevDirty = activeTab.dirty;
-      activeTab.content = typeof content === 'string' ? content : '';
+      activeTab.content = nextContent;
       activeTab.dirty = activeTab.content !== activeTab.savedContent;
 
       if (window.AppBus) {

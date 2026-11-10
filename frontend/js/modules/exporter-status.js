@@ -60,6 +60,47 @@
     };
   }
 
+  // ---------------- 状态栏刷新合并（P2-7） ----------------
+  let statusUpdateScheduled = false;
+  let statusFallbackTimer = null;
+  let statsCacheText = null;
+  let statsCacheResult = null;
+
+  /**
+   * 统计结果缓存：同一内容字符串只做一次全文正则统计。
+   */
+  function getStats(text) {
+    const value = typeof text === 'string' ? text : '';
+    if (statsCacheText === value && statsCacheResult) {
+      return statsCacheResult;
+    }
+    const result = calculateStats(value);
+    statsCacheText = value;
+    statsCacheResult = result;
+    return result;
+  }
+
+  /**
+   * rAF 合并：一帧内多次事件只刷新一次状态栏（带超时兜底）。
+   */
+  function scheduleStatusBarUpdate() {
+    if (statusUpdateScheduled) return;
+    statusUpdateScheduled = true;
+
+    const run = () => {
+      if (!statusUpdateScheduled) return;
+      statusUpdateScheduled = false;
+      if (statusFallbackTimer) {
+        clearTimeout(statusFallbackTimer);
+        statusFallbackTimer = null;
+      }
+      updateStatusBar();
+    };
+
+    requestAnimationFrame(run);
+    statusFallbackTimer = setTimeout(run, 100);
+  }
+
   /**
    * 仅在文本真正变化时写入，避免状态栏高频刷新产生大量 DOM 变更
    */
@@ -124,7 +165,7 @@
     }
 
     // 3. Document statistics
-    const stats = calculateStats(activeTab ? activeTab.content : '');
+    const stats = getStats(activeTab ? activeTab.content : '');
 
     const wordEl = document.getElementById('status-word-count');
     if (wordEl) {
@@ -466,16 +507,17 @@
 
       // 3. Register AppBus events
       if (window.AppBus) {
-        window.AppBus.on('tab:switched', () => updateStatusBar());
-        window.AppBus.on('tab:activated', () => updateStatusBar());
-        window.AppBus.on('tab:content-updated', () => updateStatusBar());
-        window.AppBus.on('editor:content-changed', () => updateStatusBar());
-        window.AppBus.on('file:saved', () => updateStatusBar());
+        // 所有状态变更事件统一走 rAF 合并，避免每个事件都重算全文统计 + 重写 DOM
+        window.AppBus.on('tab:switched', () => scheduleStatusBarUpdate());
+        window.AppBus.on('tab:activated', () => scheduleStatusBarUpdate());
+        window.AppBus.on('tab:content-updated', () => scheduleStatusBarUpdate());
+        window.AppBus.on('editor:content-changed', () => scheduleStatusBarUpdate());
+        window.AppBus.on('file:saved', () => scheduleStatusBarUpdate());
         window.AppBus.on('editor:mode-changed', (payload) => {
           if (payload && payload.mode && window.AppStore) {
             window.AppStore.setState({ editorMode: payload.mode });
           }
-          updateStatusBar();
+          scheduleStatusBarUpdate();
         });
 
         // Toast notifications

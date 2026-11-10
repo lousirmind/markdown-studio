@@ -1,8 +1,15 @@
 /**
  * TabManager Module
  * Responsible for multi-document tabs management, opening files, tab switching,
- * closing tabs, window drag-and-drop file opening, 600ms debounced auto-save,
- * immediate manual save, and 2000ms external disk file change auto-refresh.
+ * closing tabs, window drag-and-drop file opening, 1200ms debounced auto-save,
+ * immediate manual save, and 5000ms external disk file change auto-refresh.
+ *
+ * Performance notes:
+ * - The tab bar is fully rebuilt only on structural changes (add / close /
+ *   switch / open). Keystroke-level updates patch the affected .tab-item in
+ *   place (dirty class, title tooltip, label) and never touch the whole bar.
+ * - scrollIntoView() is only used on add/switch and always with
+ *   {block:'nearest'} (no smooth behaviour).
  *
  * Fully decoupled: communicates strictly through window.AppBus, window.AppStore,
  * and window.BridgeClient.
@@ -11,10 +18,10 @@
   'use strict';
 
   let autoSaveTimer = null;
-  const AUTO_SAVE_DELAY_MS = 600;
+  const AUTO_SAVE_DELAY_MS = 1200;
 
   let autoRefreshTimer = null;
-  const AUTO_REFRESH_INTERVAL_MS = 2000;
+  const AUTO_REFRESH_INTERVAL_MS = 5000;
 
   /**
    * Escape HTML helper
@@ -30,9 +37,15 @@
   }
 
   /**
-   * Render the tab items into #tabs-bar
+   * Render the tab items into #tabs-bar.
+   *
+   * Structural changes only (add / close / switch / open). Keystroke-level
+   * content/dirty updates go through updateTabItem() instead.
+   *
+   * @param {{ scrollActive?: boolean }} [options]
    */
-  function renderTabsBar() {
+  function renderTabsBar(options) {
+    const opts = options || {};
     const tabsBar = document.getElementById('tabs-bar');
     if (!tabsBar) return;
 
@@ -93,10 +106,73 @@
 
     tabsBar.appendChild(fragment);
 
-    // Scroll active tab into view if needed
+    if (opts.scrollActive) {
+      scrollActiveTabIntoView();
+    }
+  }
+
+  /**
+   * Scroll the active tab into view. Deliberately NOT smooth: the previous
+   * implementation fired a smooth scroll twice per keystroke and caused a
+   * compositor storm.
+   */
+  function scrollActiveTabIntoView() {
+    const tabsBar = document.getElementById('tabs-bar');
+    if (!tabsBar) return;
     const activeEl = tabsBar.querySelector('.tab-item.active');
-    if (activeEl) {
-      activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+    if (!activeEl) return;
+    activeEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+
+  /**
+   * Directed update of one existing .tab-item: active/dirty classes, title
+   * tooltip and label text. Writes are skipped when nothing changed, so a
+   * keystroke produces no tab-bar mutations at all.
+   * @param {object|null} tab
+   */
+  function updateTabItem(tab) {
+    if (!tab || !tab.id) return;
+
+    const tabsBar = document.getElementById('tabs-bar');
+    if (!tabsBar) return;
+
+    const safeId = String(tab.id).replace(/["\\]/g, '\\$&');
+    let tabEl = null;
+    try {
+      tabEl = tabsBar.querySelector(`.tab-item[data-id="${safeId}"]`);
+    } catch (e) {
+      tabEl = null;
+    }
+
+    if (!tabEl) {
+      // Structural mismatch (tab not rendered yet): fall back to one rebuild.
+      renderTabsBar();
+      return;
+    }
+
+    const state = window.AppStore && typeof window.AppStore.getState === 'function'
+      ? window.AppStore.getState()
+      : { activeTabId: null };
+
+    const isActive = tab.id === state.activeTabId;
+    if (tabEl.classList.contains('active') !== isActive) {
+      tabEl.classList.toggle('active', isActive);
+    }
+
+    const isDirty = !!tab.dirty;
+    if (tabEl.classList.contains('dirty') !== isDirty) {
+      tabEl.classList.toggle('dirty', isDirty);
+    }
+
+    const titleText = tab.path || tab.name || '未命名';
+    if (tabEl.getAttribute('title') !== titleText) {
+      tabEl.setAttribute('title', titleText);
+    }
+
+    const labelEl = tabEl.querySelector('.tab-title');
+    const labelText = tab.name || '未命名';
+    if (labelEl && labelEl.textContent !== labelText) {
+      labelEl.textContent = labelText;
     }
   }
 
@@ -108,7 +184,7 @@
 
     window.AppStore.setActiveTab(tabId);
     const tab = window.AppStore.getActiveTab();
-    renderTabsBar();
+    renderTabsBar({ scrollActive: true });
 
     if (window.AppBus && tab) {
       window.AppBus.emit('tab:switched', { tab: { ...tab } });
@@ -155,7 +231,7 @@
       }
     }
 
-    renderTabsBar();
+    renderTabsBar({ scrollActive: true });
 
     if (window.AppBus) {
       window.AppBus.emit('tab:closed', { id: closedId, path: closedPath });
@@ -195,7 +271,7 @@
           dirty: false,
         });
 
-        renderTabsBar();
+        renderTabsBar({ scrollActive: true });
 
         if (window.AppBus) {
           window.AppBus.emit('tab:switched', { tab: { ...newTab } });
@@ -240,6 +316,11 @@
     const tab = window.AppStore.getActiveTab();
     if (!tab) return;
 
+    // Nothing to write when the buffer already matches the last saved state.
+    if (tab.path && tab.content === tab.savedContent) {
+      return;
+    }
+
     // If tab has no local path (untitled draft)
     if (!tab.path) {
       const store = window.AppStore.getState();
@@ -280,7 +361,9 @@
         const newMtime = fileData.mtime || Date.now() / 1000;
 
         window.AppStore.markTabSaved(tab.id, newMtime);
-        renderTabsBar();
+        // markTabSaved emits tab:saved / tab:content-updated, which patch the
+        // existing .tab-item in place. No full bar rebuild on save.
+        updateTabItem(tab);
 
         if (window.AppBus) {
           window.AppBus.emit('file:saved', { path: tab.path, mtime: newMtime });
@@ -301,31 +384,34 @@
   }
 
   /**
-   * Debounced Auto-save handler
+   * Debounced Auto-save handler.
+   *
+   * Content/dirty state is written to AppStore exactly once (the store is
+   * idempotent for identical content); the tab bar only receives a directed
+   * .tab-item update via tab:content-updated. No full bar rebuild happens on
+   * the typing path.
    */
   function scheduleAutoSave(content) {
     if (!window.AppStore || !window.BridgeClient) return;
 
-    // 1. Update content in store immediately
+    // 1. Store content + dirty flag (single owner of content state).
     const tab = window.AppStore.updateActiveTabContent(content);
     if (!tab) return;
 
-    renderTabsBar();
-
-    // 2. Check if autoSave preference is enabled and tab has path
+    // 2. Only schedule a disk write when there is something to write.
     const prefs = window.AppStore.getState().preferences || {};
     if (!prefs.autoSave || !tab.path) return;
+    if (!tab.dirty || tab.content === tab.savedContent) return;
 
-    // 3. Clear existing timer and reschedule
+    // 3. Debounce: coalesce bursts of keystrokes into one write.
     if (autoSaveTimer) {
       clearTimeout(autoSaveTimer);
     }
 
     autoSaveTimer = setTimeout(async () => {
       const currentActive = window.AppStore.getActiveTab();
-      if (!currentActive || currentActive.id !== tab.id || !currentActive.dirty || !currentActive.path) {
-        return;
-      }
+      if (!currentActive || currentActive.id !== tab.id || !currentActive.path) return;
+      if (!currentActive.dirty || currentActive.content === currentActive.savedContent) return;
 
       try {
         const res = await window.BridgeClient.writeFile(currentActive.path, currentActive.content);
@@ -336,7 +422,7 @@
           const newMtime = fileData.mtime || Date.now() / 1000;
 
           window.AppStore.markTabSaved(currentActive.id, newMtime);
-          renderTabsBar();
+          updateTabItem(currentActive);
 
           if (window.AppBus) {
             window.AppBus.emit('file:saved', { path: currentActive.path, mtime: newMtime });
@@ -349,7 +435,8 @@
   }
 
   /**
-   * Monitor external disk file modifications every 2000ms
+   * Monitor external disk file modifications every 5000ms (skipped while the
+   * window is hidden).
    */
   function startAutoRefreshTimer() {
     if (autoRefreshTimer) {
@@ -358,6 +445,9 @@
 
     autoRefreshTimer = setInterval(async () => {
       if (!window.AppStore || !window.BridgeClient) return;
+
+      // No polling work while the window is hidden/minimized.
+      if (typeof document !== 'undefined' && document.hidden) return;
 
       const state = window.AppStore.getState();
       const prefs = state.preferences || {};
@@ -392,6 +482,9 @@
               tab.savedContent = fileData.content || '';
               tab.mtime = fileData.mtime || diskMtime;
               tab.dirty = false;
+
+              // Content was reloaded from disk; the tab is clean again.
+              updateTabItem(tab);
 
               // If this is currently the active tab, update editor value
               const activeTab = window.AppStore.getActiveTab();
@@ -452,7 +545,7 @@
                 savedContent: content,
                 dirty: false,
               });
-              renderTabsBar();
+              renderTabsBar({ scrollActive: true });
               if (window.AppBus) {
                 window.AppBus.emit('tab:switched', { tab: { ...newTab } });
               }
@@ -501,18 +594,21 @@
           }
         });
 
-        // Tab state updates
-        window.AppBus.on('tab:content-updated', () => {
-          renderTabsBar();
+        // Tab state updates: patch only the affected .tab-item. Keystrokes and
+        // saves must never rebuild the whole bar.
+        window.AppBus.on('tab:content-updated', (payload) => {
+          const tab = (payload && payload.tab) || window.AppStore.getActiveTab();
+          updateTabItem(tab);
         });
 
-        window.AppBus.on('tab:saved', () => {
-          renderTabsBar();
+        window.AppBus.on('tab:saved', (payload) => {
+          const tab = (payload && payload.tab) || window.AppStore.getActiveTab();
+          updateTabItem(tab);
         });
       }
 
-      // 4. Initial render
-      renderTabsBar();
+      // 4. Initial render (structural; scroll active tab into view once)
+      renderTabsBar({ scrollActive: true });
 
       // 5. Start auto-refresh interval
       startAutoRefreshTimer();

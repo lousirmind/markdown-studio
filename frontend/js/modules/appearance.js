@@ -13,6 +13,31 @@
   let saveDebounceTimer = null;
   const SAVE_DEBOUNCE_MS = 500;
 
+  // P2-7: 单一偏好应用路径 + 一帧合并
+  let lastAppliedThemeKey = null; // effectiveTheme + '|' + codeTheme，仅此组合变化才通知 setTheme
+  let applyScheduled = false;
+  let pendingApplyPrefs = null;
+  let fontSizeScheduled = false;
+  let pendingFontSize = null;
+
+  /**
+   * 一帧合并执行（rAF 优先，附带超时兜底，避免窗口失焦时 rAF 被节流）。
+   */
+  function scheduleFrame(run) {
+    let done = false;
+    const invoke = () => {
+      if (done) return;
+      done = true;
+      run();
+    };
+    const fallbackTimer = setTimeout(invoke, 100);
+    requestAnimationFrame(() => {
+      if (done) return;
+      clearTimeout(fallbackTimer);
+      invoke();
+    });
+  }
+
   // Font family mapping
   const FONT_FAMILIES = {
     sans: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif',
@@ -54,18 +79,18 @@
     const effectiveTheme = resolveEffectiveTheme(prefs.theme);
     const isDark = effectiveTheme === 'dark';
 
-    root.setAttribute('data-theme', effectiveTheme);
-    docEl.setAttribute('data-theme', effectiveTheme);
+    setAttrIfChanged(root, 'data-theme', effectiveTheme);
+    setAttrIfChanged(docEl, 'data-theme', effectiveTheme);
 
     // 2. Code Theme
     const codeTheme = prefs.codeTheme || 'github';
-    root.setAttribute('data-code-theme', codeTheme);
-    docEl.setAttribute('data-code-theme', codeTheme);
+    setAttrIfChanged(root, 'data-code-theme', codeTheme);
+    setAttrIfChanged(docEl, 'data-code-theme', codeTheme);
 
     // 3. Centered Layout
     const isCentered = prefs.centered !== false;
-    root.setAttribute('data-centered', isCentered ? 'true' : 'false');
-    docEl.setAttribute('data-centered', isCentered ? 'true' : 'false');
+    setAttrIfChanged(root, 'data-centered', isCentered ? 'true' : 'false');
+    setAttrIfChanged(docEl, 'data-centered', isCentered ? 'true' : 'false');
 
     // 4. Typography and Width CSS Variables
     const fontFamilyVal = FONT_FAMILIES[prefs.fontFamily] || prefs.fontFamily || FONT_FAMILIES.sans;
@@ -75,33 +100,76 @@
       maxWidthVal = `${maxWidthVal}px`;
     }
 
-    docEl.style.setProperty('--md-font-family', fontFamilyVal);
-    docEl.style.setProperty('--md-font-size', fontSizeVal);
-    docEl.style.setProperty('--md-max-width', maxWidthVal);
+    setCssVarIfChanged(docEl, '--md-font-family', fontFamilyVal);
+    setCssVarIfChanged(docEl, '--md-font-size', fontSizeVal);
+    setCssVarIfChanged(docEl, '--md-max-width', maxWidthVal);
 
     if (root !== docEl) {
-      root.style.setProperty('--md-font-family', fontFamilyVal);
-      root.style.setProperty('--md-font-size', fontSizeVal);
-      root.style.setProperty('--md-max-width', maxWidthVal);
+      setCssVarIfChanged(root, '--md-font-family', fontFamilyVal);
+      setCssVarIfChanged(root, '--md-font-size', fontSizeVal);
+      setCssVarIfChanged(root, '--md-max-width', maxWidthVal);
     }
 
-    // 5. Custom CSS injection
+    // 5. Custom CSS injection（内容未变不重写，避免样式重算）
     let customStyleEl = document.getElementById('user-custom-css');
     if (!customStyleEl) {
       customStyleEl = document.createElement('style');
       customStyleEl.id = 'user-custom-css';
       document.head.appendChild(customStyleEl);
     }
-    customStyleEl.textContent = prefs.customCss || '';
+    const customCss = prefs.customCss || '';
+    if (customStyleEl.textContent !== customCss) {
+      customStyleEl.textContent = customCss;
+    }
 
-    // 6. Notify EditorEngine of theme & code theme change
-    if (window.EditorEngine && typeof window.EditorEngine.setTheme === 'function') {
-      try {
-        window.EditorEngine.setTheme(isDark, codeTheme);
-      } catch (err) {
-        console.warn('[Appearance] EditorEngine.setTheme error:', err);
+    // 6. 仅 theme / codeTheme 真正变化时才通知 EditorEngine。
+    //    字号 / 最大宽度 / 字体族只改 CSS 变量，绝不触发阅读模式全文重渲染。
+    const themeKey = effectiveTheme + '|' + codeTheme;
+    if (lastAppliedThemeKey !== themeKey) {
+      lastAppliedThemeKey = themeKey;
+      if (window.EditorEngine && typeof window.EditorEngine.setTheme === 'function') {
+        try {
+          window.EditorEngine.setTheme(isDark, codeTheme);
+        } catch (err) {
+          console.warn('[Appearance] EditorEngine.setTheme error:', err);
+        }
       }
     }
+  }
+
+  /**
+   * 仅在属性值真正变化时写入
+   */
+  function setAttrIfChanged(el, name, value) {
+    if (el && el.getAttribute(name) !== value) {
+      el.setAttribute(name, value);
+    }
+  }
+
+  /**
+   * 仅在 CSS 变量真正变化时写入
+   */
+  function setCssVarIfChanged(el, name, value) {
+    if (el && el.style.getPropertyValue(name) !== value) {
+      el.style.setProperty(name, value);
+    }
+  }
+
+  /**
+   * 合并应用：同一帧内的多次偏好变更只应用一次
+   */
+  function scheduleApplyPreferences(prefs) {
+    pendingApplyPrefs = prefs;
+    if (applyScheduled) return;
+    applyScheduled = true;
+    scheduleFrame(() => {
+      applyScheduled = false;
+      const next = pendingApplyPrefs;
+      pendingApplyPrefs = null;
+      if (!next) return;
+      applyPreferences(next);
+      syncFormWithPreferences(next);
+    });
   }
 
   /**
@@ -121,6 +189,35 @@
         console.error('[Appearance] Error saving preferences:', err);
       }
     }, SAVE_DEBOUNCE_MS);
+  }
+
+  /**
+   * 唯一偏好写入入口：写 store 后由 prefs:changed 监听统一应用 + 持久化，
+   * 不再手动调用 applyPreferences（消除同一次变更被应用两次的问题）。
+   */
+  function onPreferenceChange(key, value) {
+    if (!window.AppStore) return;
+
+    window.AppStore.updatePreference(key, value);
+
+    const currentPrefs = window.AppStore.getState().preferences;
+    scheduleSavePreferences(currentPrefs);
+  }
+
+  /**
+   * 字号滑块：rAF 合并，拖动过程中每帧最多应用一次
+   */
+  function scheduleFontSizeChange(value) {
+    if (typeof value !== 'number') return;
+    pendingFontSize = value;
+    if (fontSizeScheduled) return;
+    fontSizeScheduled = true;
+    scheduleFrame(() => {
+      fontSizeScheduled = false;
+      const next = pendingFontSize;
+      pendingFontSize = null;
+      if (typeof next === 'number') onPreferenceChange('fontSize', next);
+    });
   }
 
   /**
@@ -150,6 +247,9 @@
   function syncFormWithPreferences(prefs) {
     if (!prefs) return;
 
+    // 正在编辑的控件不回写，避免打断用户输入/滑块拖动（光标跳动）
+    const activeEl = document.activeElement;
+
     const elTheme = document.getElementById('pref-theme');
     if (elTheme) elTheme.value = prefs.theme || 'auto';
 
@@ -162,9 +262,11 @@
     const elFontSize = document.getElementById('pref-font-size');
     const elFontSizeVal = document.getElementById('pref-font-size-val');
     if (elFontSize) {
-      elFontSize.value = prefs.fontSize || 16;
+      if (elFontSize !== activeEl) {
+        elFontSize.value = prefs.fontSize || 16;
+      }
       if (elFontSizeVal) {
-        elFontSizeVal.textContent = `${prefs.fontSize || 16}px`;
+        elFontSizeVal.textContent = (prefs.fontSize || 16) + 'px';
       }
     }
 
@@ -193,7 +295,9 @@
     if (elAutoRefresh) elAutoRefresh.checked = prefs.autoRefresh !== false;
 
     const elCustomCss = document.getElementById('pref-custom-css');
-    if (elCustomCss) elCustomCss.value = prefs.customCss || '';
+    if (elCustomCss && elCustomCss !== activeEl) {
+      elCustomCss.value = prefs.customCss || '';
+    }
   }
 
   /**
@@ -219,17 +323,6 @@
           toggleSettingsDrawer(false);
         }
       });
-    }
-
-    // Generic handler for preference change
-    function onPreferenceChange(key, value) {
-      if (!window.AppStore) return;
-
-      window.AppStore.updatePreference(key, value);
-      const currentPrefs = window.AppStore.getState().preferences;
-
-      applyPreferences(currentPrefs);
-      scheduleSavePreferences(currentPrefs);
     }
 
     // 1. Theme select
@@ -264,9 +357,10 @@
         const val = parseInt(e.target.value, 10);
         if (!isNaN(val) && val >= 10 && val <= 36) {
           if (elFontSizeVal) {
-            elFontSizeVal.textContent = `${val}px`;
+            elFontSizeVal.textContent = val + 'px';
           }
-          onPreferenceChange('fontSize', val);
+          // rAF 合并：拖动滑块时每帧最多写一次偏好
+          scheduleFontSizeChange(val);
         }
       });
     }
@@ -325,7 +419,7 @@
       if (window.AppStore) {
         const currentPrefs = window.AppStore.getState().preferences;
         if (currentPrefs.theme === 'auto') {
-          applyPreferences(currentPrefs);
+          scheduleApplyPreferences(currentPrefs);
         }
       }
     };
@@ -350,8 +444,8 @@
         window.AppBus.on('prefs:changed', (payload) => {
           const prefs = (payload && payload.preferences) || (window.AppStore && window.AppStore.getState().preferences);
           if (prefs) {
-            applyPreferences(prefs);
-            syncFormWithPreferences(prefs);
+            // 一帧合并：同一帧内多次偏好变更只应用一次
+            scheduleApplyPreferences(prefs);
           }
         });
       }

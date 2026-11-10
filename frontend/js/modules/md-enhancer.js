@@ -33,6 +33,46 @@
     error: 'danger',
   };
 
+  // ---------------- 渲染增强调度（P2-7） ----------------
+  // 高频 editor:rendered 不再逐次全量扫描，统一合并到约 150ms 后执行一次。
+  const ENHANCE_DEBOUNCE_MS = 150;
+  let enhanceTimer = null;
+  let pendingEnhanceContainer = null;
+  let listenersBound = false;
+
+  /**
+   * 解析当前活动的渲染容器（payload 缺失时的兜底）。
+   */
+  function resolveContainer() {
+    const store = window.AppStore ? window.AppStore.getState() : {};
+    const mode = store.editorMode || 'ir';
+    if (mode === 'reader') {
+      return document.getElementById('reader-container');
+    }
+    return (
+      document.querySelector('#vditor-container .vditor-reset') ||
+      document.getElementById('vditor-container')
+    );
+  }
+
+  /**
+   * 合并调度：同一批 rendered 事件只做一次增强扫描。
+   */
+  function scheduleEnhance(containerEl, delay) {
+    if (containerEl) pendingEnhanceContainer = containerEl;
+    if (enhanceTimer) clearTimeout(enhanceTimer);
+    enhanceTimer = setTimeout(() => {
+      enhanceTimer = null;
+      let container = pendingEnhanceContainer;
+      pendingEnhanceContainer = null;
+      // 目标容器已被替换/移除时，改为增强当前活动容器
+      if (!container || container.isConnected === false) {
+        container = resolveContainer();
+      }
+      enhance(container);
+    }, typeof delay === 'number' ? delay : ENHANCE_DEBOUNCE_MS);
+  }
+
   /**
    * 1. Callout / Alert Container Enhancement
    */
@@ -40,8 +80,8 @@
     const blockquotes = containerEl.querySelectorAll('blockquote');
 
     blockquotes.forEach((bq) => {
-      // Avoid re-processing
-      if (bq.classList.contains('md-callout')) return;
+      // Avoid re-processing（幂等：已增强的 blockquote 直接跳过）
+      if (bq.classList.contains('md-callout') || bq.dataset.mdCallout === '1') return;
 
       const firstChild = bq.firstElementChild;
       if (!firstChild || firstChild.tagName !== 'P') return;
@@ -54,7 +94,8 @@
         const calloutType = CALLOUT_TYPE_MAP[rawType] || 'note';
         const customTitle = match[2] ? match[2].trim() : match[1].toUpperCase();
 
-        bq.classList.add('md-callout', `md-callout-${calloutType}`);
+        bq.classList.add('md-callout', 'md-callout-' + calloutType);
+        bq.dataset.mdCallout = '1';
 
         const iconSvg = CALLOUT_ICONS[calloutType] || CALLOUT_ICONS.note;
 
@@ -87,8 +128,10 @@
     const imgs = containerEl.querySelectorAll('img');
 
     imgs.forEach((img) => {
+      // 已处理过的图片直接跳过（幂等）
+      if (img.dataset.mdSized === '1') return;
+
       const alt = img.getAttribute('alt') || '';
-      const src = img.getAttribute('src') || '';
 
       // Pattern 1: Obsidian style: ![alt|300x200](...) or ![alt|300](...)
       const obsidianMatch = alt.match(/^(.*?)\|(\d+)(?:x(\d+))?$/i);
@@ -99,10 +142,11 @@
 
         img.setAttribute('alt', cleanAlt);
         if (cleanAlt) img.setAttribute('title', cleanAlt);
-        img.style.width = `${width}px`;
+        img.style.width = width + 'px';
         if (height) {
-          img.style.height = `${height}px`;
+          img.style.height = height + 'px';
         }
+        img.dataset.mdSized = '1';
         return;
       }
 
@@ -115,11 +159,14 @@
 
         img.setAttribute('alt', cleanAlt);
         if (cleanAlt) img.setAttribute('title', cleanAlt);
-        img.style.width = `${width}px`;
+        img.style.width = width + 'px';
         if (height) {
-          img.style.height = `${height}px`;
+          img.style.height = height + 'px';
         }
       }
+
+      // 无尺寸语法也标记，避免下次重复匹配
+      img.dataset.mdSized = '1';
     });
   }
 
@@ -144,10 +191,13 @@
     }));
 
     images.forEach((img, idx) => {
-      img.classList.add('lightbox-trigger');
-      img.style.cursor = 'zoom-in';
+      if (img.dataset.mdLightbox !== '1') {
+        img.dataset.mdLightbox = '1';
+        img.classList.add('lightbox-trigger');
+        img.style.cursor = 'zoom-in';
+      }
 
-      // Remove existing listener to avoid duplication on re-renders
+      // 覆盖式绑定（onclick 赋值），重复执行不会累积监听器
       img.onclick = (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -175,9 +225,9 @@
 
     checkboxes.forEach((cb, index) => {
       if (isReaderMode) {
-        // Enable clickable interaction in reader mode
-        cb.removeAttribute('disabled');
-        cb.style.cursor = 'pointer';
+        // Enable clickable interaction in reader mode（仅在需要时改 DOM）
+        if (cb.hasAttribute('disabled')) cb.removeAttribute('disabled');
+        if (cb.style.cursor !== 'pointer') cb.style.cursor = 'pointer';
 
         cb.onchange = (e) => {
           e.stopPropagation();
@@ -186,7 +236,7 @@
         };
       } else {
         // In editor mode, Vditor manages clicks inside editor
-        cb.style.cursor = 'default';
+        if (cb.style.cursor !== 'default') cb.style.cursor = 'default';
       }
     });
   }
@@ -248,9 +298,12 @@
 
   // Bind to AppBus
   function setup() {
+    if (listenersBound) return;
     if (window.AppBus) {
-      window.AppBus.on('editor:rendered', ({ containerEl }) => {
-        enhance(containerEl);
+      listenersBound = true;
+      window.AppBus.on('editor:rendered', (payload) => {
+        // 与 TOC 刷新节奏错开但同样合并：一批 rendered 只增强一次
+        scheduleEnhance(payload && payload.containerEl, ENHANCE_DEBOUNCE_MS);
       });
     }
   }
@@ -259,6 +312,7 @@
     enhance,
     setup,
     init: setup,
+    schedule: scheduleEnhance,
   };
 
   setup();

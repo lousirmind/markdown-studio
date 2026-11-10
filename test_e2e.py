@@ -273,26 +273,35 @@ def run_e2e_tests(window):
         window.destroy()
 
 
-def builtin_display_origin(width, height, margin=40):
-    """Place the test window on the built-in display (Cocoa bottom-left coords)."""
+def builtin_window_kwargs(width, height, margin=40):
+    """Return create_window kwargs that place the window on the built-in display.
+
+    pywebview's x/y are relative to the selected Screen (top-left, y downward),
+    so passing an absolute NSScreen origin makes the window land off-screen and
+    Cocoa crashes in windowDidMove_. Select the built-in Screen explicitly.
+    """
     try:
+        import webview as _wv
         from AppKit import NSScreen
         from Quartz import CGDisplayIsBuiltin
-        for s in NSScreen.screens():
+        idx = None
+        for i, s in enumerate(NSScreen.screens()):
             did = s.deviceDescription().objectForKey_("NSScreenNumber")
             if did is not None and CGDisplayIsBuiltin(int(did)):
-                f = s.frame()
-                return (int(f.origin.x + margin), int(f.origin.y + f.size.height - height - margin))
+                idx = i
+                break
+        screens = list(getattr(_wv, "screens", []) or [])
+        if idx is not None and idx < len(screens):
+            return {"screen": screens[idx], "x": margin, "y": margin}
     except Exception:
         pass
-    return (40, 40)
-
+    return {}
 
 def main():
     bridge = DesktopBridge(initial_file=WELCOME_MD)
 
     win_w, win_h = 1400, 900
-    win_x, win_y = builtin_display_origin(win_w, win_h)
+    win_kw = builtin_window_kwargs(win_w, win_h)
 
     window = webview.create_window(
         title="Markdown Studio [E2E Test]",
@@ -300,8 +309,7 @@ def main():
         js_api=bridge,
         width=win_w,
         height=win_h,
-        x=win_x,
-        y=win_y,
+        **win_kw,
         focus=False,
         text_select=True,
     )
