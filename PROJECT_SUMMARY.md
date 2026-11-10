@@ -53,7 +53,9 @@ flowchart TD
 │   ├── config_service.py           # 用户偏好设置（~/.markdown_studio_prefs.json）
 │   ├── file_service.py             # 文件与目录树读写、原子写入、编码容错、mtime 检测
 │   ├── asset_service.py            # 剪贴板 Base64 图片解码保存至 ./assets、自包含 HTML 导出
-│   ├── print_service.py            # 原生 PDF 导出（WKWebView 打印管线，A4 分页）
+│   ├── print_service.py            # 原生 PDF 导出（WKWebView 打印管线，纸张/方向/边距/页眉页脚/缩放）
+│   ├── session_service.py          # 会话持久化（启动恢复未关闭标签与未保存内容）
+│   ├── dragdrop_service.py         # Finder 拖拽分类（文档/文件夹/图片/不支持）
 │   └── bridge.py                   # PyWebView 门面 Facade（统一暴露 API 与原生对话框）
 ├── frontend/                       # 前端渲染层
 │   ├── vendor/                     # 100% 完全离线第三方库
@@ -123,7 +125,7 @@ python3 test_e2e.py
   6. `[PASS]` 底部状态栏字数/行数/阅读耗时指标实时统计
   7. `[PASS]` 纯阅读模式（Reader Mode）切换与高保真居中排版
   8. `[PASS]` GitHub / Obsidian 风格 Callout 容器增强转换（NOTE, TIP, WARNING, DANGER 全部正确渲染）
-  9. `[PASS]` 本地图片相对路径自动解析为 `file://` 协议，无破损加载
+  9. `[PASS]` 本地图片经 bridge 转 data URL 加载（naturalWidth>0，无破损）
   10. `[PASS]` 双栏分屏（SV）模式无缝切换与同步
   11. `[PASS]` 所见即所得（WYSIWYG）模式无缝切换
   12. `[PASS]` 即时渲染（IR）模式平滑回退与重新挂载

@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 
 APP_NAME="Markdown Studio"
 BUNDLE_ID="com.markdownstudio.desktop"
-VERSION="1.0.0"
+VERSION="1.1.0"
 
 # 1) Re-generate the icon (requires Pillow); skipped when Pillow is unavailable
 #    and the committed .icns already exists.

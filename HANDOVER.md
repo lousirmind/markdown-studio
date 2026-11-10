@@ -36,7 +36,9 @@
 │   ├── config_service.py                # 用户偏好设置持久化服务 (96 行)
 │   ├── file_service.py                  # 本地文件与工作区目录树 IO 服务 (294 行)
 │   ├── asset_service.py                 # 剪贴板图片保存与独立 HTML 导出服务 (257 行)
-│   ├── print_service.py                 # 原生 PDF 导出（WKWebView NSPrintOperation，A4 分页）
+│   ├── print_service.py                 # 原生 PDF 导出（纸张/方向/边距/页眉页脚/缩放）
+│   ├── session_service.py               # 会话持久化（启动恢复标签与未保存内容）
+│   ├── dragdrop_service.py              # Finder 拖拽分类（文档/文件夹/图片/不支持）
 │   └── bridge.py                        # PyWebView 统一 API 门面 Facade (187 行)
 ├── frontend/                            # 前端 Web 应用层
 │   ├── index.html                       # 桌面应用单页结构骨架 (298 行)
@@ -140,6 +142,9 @@ flowchart TD
 | `save_preferences` | `(prefs: dict)` | 保存后的偏好字典 | 原子持久化偏好设置到用户目录 |
 | `export_pdf` | `(default_name, target_path=None)` | `{"path", "status": "running"}` | 启动原生 PDF 导出（A4 分页）；target_path 仅供自动化测试跳过保存对话框 |
 | `get_pdf_export_result` | `()` | `{"status", "path", "result": {"ok", "data": {"path", "size", "pages"}}}` | 轮询 PDF 导出状态与结果 |
+| `save_session` / `load_session` / `clear_session` | `(state)` / `()` / `()` | 标准 `{ok, data}` | 会话持久化（~/.markdown_studio_session.json，原子写、体积保护） |
+| `get_drop_status` | `()` | `{registered, num_listeners, js_channel}` | 拖拽通道注册状态（诊断/验收） |
+| `handle_drop_event` | `(event)` | 文档/文件夹/图片/不支持分类摘要 | pywebview 原生 drop 入口，转发 file:open-request / folder:open-request / Toast |
 | `select_file_dialog` | `()` | `{"path": str}` | 调起 macOS 原生文件选择对话框（支持取消检测） |
 | `select_folder_dialog`| `()` | `{"path": str}` | 调起 macOS 原生工作区文件夹选择对话框 |
 | `export_html_dialog` | `(default_name: str, html_content: str)` | `{"path": str}` | 调起 macOS 原生保存文件对话框并触发自包含 HTML 写入 |
@@ -377,7 +382,7 @@ flowchart TD
 产物：
 
 - `dist/Markdown Studio.app`：自包含应用（约 74 MB，内置 frontend/vendor 与 sample，可拖入 `/Applications`）
-- `dist/Markdown Studio-1.0.0.zip`：便于分发的压缩包（约 28 MB）
+- `dist/Markdown Studio-1.1.0.zip`：便于分发的压缩包（约 28 MB）
 - `packaging/icon.icns` / `packaging/make_icon.py`：应用图标与其绘制脚本（渐变圆角 + 文档 + M↓）
 
 打包后自检（无需打开主窗口）：
@@ -416,3 +421,24 @@ BIN="dist/Markdown Studio.app/Contents/MacOS/Markdown Studio"
 | 性能 | 模式切换销毁重建 Vditor | 复用单实例并经内部 edit-mode 菜单切换，toolbar 节点保持 |
 | 性能 | 偏好变更整页重渲染 | 阅读预览按内容 + 主题签名去重，字号/宽度仅改 CSS 变量 |
 | 功能 | 缺少真正的 PDF 落盘 | 新增 `print_service.py` 原生 A4 分页导出，前端轮询状态并提示页数 |
+### 坑 8：窗口关闭事件里同步调用 evaluate_js 会死锁
+- **现象**：T6 会话保存在 `window.events.closing` 中直接调用 `window.evaluate_js()`，Cocoa 主线程会阻塞等待 semaphore，而 callAfter 投递的回调同样排在同一条主线程 → 关闭卡死。
+- **解决方案**：在 closing 钩子里改用 runloop 泵动的 `WKWebView.evaluateJavaScript_completionHandler_`（1.5s 上限）同步读取 `window.__mdStudioSessionStateJSON()`，非主线程才走普通 evaluate_js；读取失败时回退到最近一次前端推送的缓存状态，且异常不阻断关闭。实测真实关闭 7–8ms 完成。
+
+---
+
+## 8. Phase 8：交互能力增强记录（2026-11，v1.1.0）
+
+本轮在 Phase 7 基础上完成 7 项功能，均经 Lead 独立质检 + 三套回归（headless 12/12、E2E 15/15、显示/性能验收）：
+
+| 功能 | 实现要点 | 验收要点 |
+| :--- | :--- | :--- |
+| Finder 拖拽打开（T5） | pywebview 原生 drop 通道（loaded 后注册 body 监听），`pywebviewFullPath` 取真实路径；文档/文件夹/图片/不支持分类；前端只做遮罩与 mock 兜底 | .md/.txt 逐个打开、重复不重复开、文件夹切工作区、图片只提示 Cmd+V、混合拖入、遮罩显隐、0 JS 错误 |
+| 图片灯箱修复（T1） | `.lightbox-stage` 显式 90vw×80vh 消除百分比循环依赖；fitScale + scale 双模型；按钮实时百分比 | 图片非 0 尺寸、大图 fit 42%→53%、小图 100% 不放大、多图切换、caption/缩略图不遮挡、关闭复位 |
+| 会话恢复（T6） | session_service + session-manager；关闭时同步快照；脏内容作为缓冲恢复；缺失文件跳过或用“已恢复”草稿兜底；launched_with_file 不恢复 | 真实关闭捕获关闭前修改、重启恢复标签/脏内容/active/工作区/模式、缺失策略、无会话回退、显式文件只开指定 |
+| PDF 导出选项（T3） | 纸张/方向/边距/页眉页脚/缩放规范化后映射 NSPrintInfo；横向用纵向尺寸 + orientation；选项持久化 | MediaBox 实测 A4 595×842、Letter 横向 792×612、A5 419×595；非法值回退；UI 持久化与导出透传 |
+| 标签排序 + 最近文件（T4） | store.moveTab 原地重排 + tab:reordered；最近文件偏好（20 条去重、最新在前）+ 顶栏弹层 | 拖拽后 DOM/state/session 顺序一致且 active 不变；最近文件顺序/去重/落盘/重启保留/缺失置灰/清除 |
+| 查找替换（T7） | 源码级检索，四模式通用；applyExternalContent 同步编辑器/store/自动保存；正则/整词/大小写 | 计数与循环、替换一处/全部、磁盘与 store 一致、非法正则、标签切换重算、Cmd+F/按钮入口 |
+| 快速打开/命令面板（T8） | 工作区文件索引 + 子序列模糊匹配；18 条命令注册表；Cmd+P / Cmd+Shift+P / “>” 前缀 | 按钮/Cmd+P 打开、模糊命中并打开、命令模式、主题与模式切换、无结果、遮罩关闭、900px 适配 |
+
+版本：应用 `Markdown Studio.app` 升至 **1.1.0**（arm64、ad-hoc 签名、zip 分发）。

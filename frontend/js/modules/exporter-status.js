@@ -695,8 +695,17 @@
     });
 
     // Let fonts, embedded images and layout settle before WebKit paginates.
+    // requestAnimationFrame is paused while the window is occluded/backgrounded,
+    // so keep a timeout fallback or a background-initiated export would hang.
     await new Promise((resolve) => {
-      requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 150)));
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+      requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(finish, 150)));
+      setTimeout(finish, 500);
     });
 
     return prevMode;
