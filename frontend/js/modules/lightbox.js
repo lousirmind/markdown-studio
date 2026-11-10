@@ -1,21 +1,30 @@
 /**
  * Lightbox Module
  * Responsible for displaying high-resolution image preview modal, image zooming
- * (button, mouse wheel), panning (mouse drag), thumbnail list, next/prev navigation,
- * keyboard controls, and smooth closing.
+ * (button, mouse wheel, keyboard, double click), panning (mouse drag), thumbnail
+ * list, next/prev navigation, keyboard controls, and smooth closing.
+ *
+ * Zoom model:
+ *   - fitScale: the natural fit ratio of the current image (large image < 1, small = 1).
+ *     The stage has an explicit size, so CSS max-width/max-height handle the fit.
+ *   - scale: user zoom multiplier relative to that fit (1 = fit, 0.2 - 5).
+ *   - The reset button always shows the effective size relative to the original
+ *     pixels (fitScale * scale), e.g. "42%" for a large image at fit, "125%" after
+ *     one zoom-in step on an image that fits 1:1.
  *
  * Fully decoupled: communicates strictly through window.AppBus.
  */
 (function () {
   'use strict';
 
-  // State
+  // Image list state
   let images = [];
   let currentIndex = 0;
   let isOpen = false;
 
   // Zoom & Pan state
   let scale = 1;
+  let fitScale = 1;
   let translateX = 0;
   let translateY = 0;
   let isDragging = false;
@@ -24,27 +33,92 @@
 
   const MIN_SCALE = 0.2;
   const MAX_SCALE = 5.0;
-  const SCALE_STEP = 0.25;
+  const ZOOM_FACTOR = 1.25;
 
   /**
-   * Update transform on the lightbox image
+   * Content box of .lightbox-stage (its padding is reserved for toolbar/caption).
    */
-  function updateImageTransform() {
+  function getStageContentBox() {
+    const stageEl = document.querySelector('.lightbox-stage');
+    if (!stageEl) return { width: 0, height: 0 };
+
+    const cs = window.getComputedStyle(stageEl);
+    const padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+    const padY = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+
+    return {
+      width: Math.max(0, stageEl.clientWidth - padX),
+      height: Math.max(0, stageEl.clientHeight - padY),
+    };
+  }
+
+  /**
+   * Ratio between the CSS "fit" rendering and the image's intrinsic pixels.
+   * Small images are never upscaled, so the result is capped at 1.
+   */
+  function computeFitScale() {
+    const imgEl = document.getElementById('lightbox-img');
+    if (!imgEl) return 1;
+
+    const naturalW = imgEl.naturalWidth || 0;
+    const naturalH = imgEl.naturalHeight || 0;
+    if (!naturalW || !naturalH) return 1;
+
+    const box = getStageContentBox();
+    if (!box.width || !box.height) return 1;
+
+    return Math.min(1, box.width / naturalW, box.height / naturalH);
+  }
+
+  /**
+   * Reset button doubles as the live zoom percentage readout.
+   */
+  function updateZoomLabel() {
+    const btnReset = document.getElementById('lightbox-reset');
+    if (!btnReset) return;
+
+    const percent = Math.round(fitScale * scale * 100);
+    btnReset.textContent = percent + '%';
+  }
+
+  /**
+   * Apply pan/zoom transform and refresh the percentage readout.
+   */
+  function applyTransform() {
     const imgEl = document.getElementById('lightbox-img');
     if (!imgEl) return;
 
     imgEl.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
     imgEl.style.cursor = isDragging ? 'grabbing' : scale > 1 ? 'grab' : 'default';
+    updateZoomLabel();
   }
 
   /**
-   * Reset zoom and pan coordinates
+   * Single entry point for every zoom gesture.
+   */
+  function setScale(nextScale) {
+    const rounded = Math.round(nextScale * 1000) / 1000;
+    const clamped = Math.min(MAX_SCALE, Math.max(MIN_SCALE, rounded));
+    scale = clamped;
+
+    // 平移只在放大后有意义；回到 fit（或更小）时归位，避免图片跑出视野
+    if (scale <= 1) {
+      translateX = 0;
+      translateY = 0;
+    }
+
+    applyTransform();
+  }
+
+  /**
+   * Reset zoom and pan to the fit state for the current image.
    */
   function resetTransform() {
     scale = 1;
     translateX = 0;
     translateY = 0;
-    updateImageTransform();
+    fitScale = computeFitScale();
+    applyTransform();
   }
 
   /**
@@ -65,9 +139,17 @@
     const imgEl = document.getElementById('lightbox-img');
     const captionEl = document.getElementById('lightbox-caption');
 
+    // 切图后回到 fit：缩放与平移都归零
+    scale = 1;
+    translateX = 0;
+    translateY = 0;
+
     if (imgEl && currentImg) {
       imgEl.src = currentImg.src;
       imgEl.alt = currentImg.alt || '';
+      // 缓存图片可能同步可用；未加载完时由 load 事件重算
+      fitScale =
+        imgEl.complete && imgEl.naturalWidth > 0 ? computeFitScale() : 1;
     }
 
     if (captionEl) {
@@ -76,7 +158,7 @@
       captionEl.textContent = `${captionText}${counter}`;
     }
 
-    resetTransform();
+    applyTransform();
     updateThumbnailsActiveState();
   }
 
@@ -194,7 +276,11 @@
       thumbsEl.innerHTML = '';
     }
 
-    resetTransform();
+    scale = 1;
+    translateX = 0;
+    translateY = 0;
+    fitScale = 1;
+    applyTransform();
     images = [];
   }
 
@@ -202,13 +288,11 @@
    * Zoom controls
    */
   function zoomIn() {
-    scale = Math.min(MAX_SCALE, Math.round((scale + SCALE_STEP) * 100) / 100);
-    updateImageTransform();
+    setScale(scale * ZOOM_FACTOR);
   }
 
   function zoomOut() {
-    scale = Math.max(MIN_SCALE, Math.round((scale - SCALE_STEP) * 100) / 100);
-    updateImageTransform();
+    setScale(scale / ZOOM_FACTOR);
   }
 
   /**
@@ -224,6 +308,25 @@
     const btnPrev = document.getElementById('lightbox-prev');
     const btnNext = document.getElementById('lightbox-next');
 
+    if (btnReset) {
+      btnReset.title = '适应窗口并复位 (0)';
+    }
+
+    // 图片加载完成后再测量 fit 比例（naturalWidth 此时才可靠）
+    if (imgEl) {
+      imgEl.addEventListener('load', () => {
+        if (!isOpen) return;
+        fitScale = computeFitScale();
+        applyTransform();
+      });
+
+      imgEl.addEventListener('error', () => {
+        if (!isOpen) return;
+        fitScale = 1;
+        applyTransform();
+      });
+    }
+
     // Close button
     if (btnClose) {
       btnClose.addEventListener('click', (e) => {
@@ -238,7 +341,8 @@
         if (
           e.target === modal ||
           e.target.classList.contains('lightbox-backdrop') ||
-          e.target.classList.contains('lightbox-viewport')
+          e.target.classList.contains('lightbox-viewport') ||
+          e.target.classList.contains('lightbox-stage')
         ) {
           closeLightbox();
         }
@@ -290,25 +394,29 @@
           if (!isOpen) return;
           e.preventDefault();
 
-          if (e.deltaY < 0) {
-            zoomIn();
-          } else {
-            zoomOut();
-          }
+          setScale(e.deltaY < 0 ? scale * ZOOM_FACTOR : scale / ZOOM_FACTOR);
         },
         { passive: false }
       );
     }
 
-    // Mouse drag pan on image
+    // Mouse drag pan on image (only meaningful after zooming in)
     if (imgEl) {
       imgEl.addEventListener('mousedown', (e) => {
-        if (!isOpen) return;
+        if (!isOpen || scale <= 1) return;
         e.preventDefault();
         isDragging = true;
         dragStartX = e.clientX - translateX;
         dragStartY = e.clientY - translateY;
-        updateImageTransform();
+        applyTransform();
+      });
+
+      // Double click toggles fit <-> 2x（快捷放大，不影响按钮/滚轮路径）
+      imgEl.addEventListener('dblclick', (e) => {
+        if (!isOpen) return;
+        e.preventDefault();
+        e.stopPropagation();
+        setScale(scale === 1 ? 2 : 1);
       });
     }
 
@@ -316,14 +424,21 @@
       if (!isDragging || !isOpen) return;
       translateX = e.clientX - dragStartX;
       translateY = e.clientY - dragStartY;
-      updateImageTransform();
+      applyTransform();
     });
 
     window.addEventListener('mouseup', () => {
       if (isDragging) {
         isDragging = false;
-        updateImageTransform();
+        applyTransform();
       }
+    });
+
+    // 窗口尺寸变化后 fit 比例会变，重新同步百分比
+    window.addEventListener('resize', () => {
+      if (!isOpen) return;
+      fitScale = computeFitScale();
+      applyTransform();
     });
 
     // Keyboard shortcuts
