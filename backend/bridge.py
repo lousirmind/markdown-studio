@@ -5,6 +5,7 @@ asset_service, and pywebview native desktop dialogs.
 """
 
 import os
+import sys
 import time
 from typing import Any, Dict, List, Optional
 import webview
@@ -25,7 +26,12 @@ class DesktopBridge:
     def __init__(self, initial_file: Optional[str] = None):
         self.window = None
         self.initial_file = os.path.abspath(initial_file) if initial_file else None
-        self.project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if getattr(sys, "frozen", False):
+            self.project_root = getattr(
+                sys, "_MEIPASS", os.path.dirname(os.path.abspath(sys.executable))
+            )
+        else:
+            self.project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self._pdf_export_state = None
 
     def set_window(self, window):

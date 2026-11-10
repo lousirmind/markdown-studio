@@ -35,7 +35,22 @@ python3 main.py ./sample/welcome.md
 ./run.command
 ```
 
-### 3. 运行自动化接口自检
+### 3. 打包为 macOS App
+
+```bash
+# 生成自定义图标 + 打包 .app（需要 PyInstaller 与 Pillow）
+./packaging/build_app.command
+```
+
+产物：`dist/Markdown Studio.app`（可拖入 /Applications），以及 `dist/Markdown Studio-1.0.0.zip`。
+打包后可做无界面自检：
+
+```bash
+"dist/Markdown Studio.app/Contents/MacOS/Markdown Studio" --headless-check
+"dist/Markdown Studio.app/Contents/MacOS/Markdown Studio" --smoke-test
+```
+
+### 4. 运行自动化接口自检
 ```bash
 python3 main.py --headless-check
 ```

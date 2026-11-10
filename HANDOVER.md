@@ -368,20 +368,32 @@ flowchart TD
 
 ### 6.4 打包为独立 macOS `.app` 安装包指南
 
-若需要脱离终端直接分发给其他 macOS 用户使用，可使用 PyInstaller 完成独立打包：
+项目已内置一键打包脚本（PyInstaller onedir + 自定义图标 + 精简排除 + ad-hoc 签名 + zip）：
 
 ```bash
-# 1. 安装 PyInstaller
-pip install pyinstaller
-
-# 2. 执行单文件/应用包打包
-pyinstaller --noconfirm --onedir --windowed \
-  --name "MarkdownStudio" \
-  --add-data "frontend:frontend" \
-  --add-data "sample:sample" \
-  main.py
+./packaging/build_app.command
 ```
-打包完成后，产物将生成在 `dist/MarkdownStudio.app`，可直接拖入 `/Applications` 文件夹运行。
+
+产物：
+
+- `dist/Markdown Studio.app`：自包含应用（约 74 MB，内置 frontend/vendor 与 sample，可拖入 `/Applications`）
+- `dist/Markdown Studio-1.0.0.zip`：便于分发的压缩包（约 28 MB）
+- `packaging/icon.icns` / `packaging/make_icon.py`：应用图标与其绘制脚本（渐变圆角 + 文档 + M↓）
+
+打包后自检（无需打开主窗口）：
+
+```bash
+BIN="dist/Markdown Studio.app/Contents/MacOS/Markdown Studio"
+"$BIN" --headless-check   # 后端 12 项接口自检
+"$BIN" --smoke-test       # 真实前端加载自检（内建屏、不抢焦点）
+```
+
+说明：
+
+- 脚本会排除 Anaconda 环境中无关的 PyQt5/numpy/PIL 等模块，避免包体膨胀（从 387 MB 降到 74 MB）。
+- 默认使用 ad-hoc 签名（`codesign -s -`），足够本机运行；分发给其他机器需替换为 Developer ID 证书并公证。
+- 若放在 iCloud 同步目录（Documents/Desktop），系统可能重新写入 FinderInfo 扩展属性导致 `codesign --verify` 报 detritus；执行 `xattr -cr "dist/Markdown Studio.app"` 即可，且不影响本机启动。
+
 ### 坑 7：WKWebView 打印 / PDF 操作不能在主 RunLoop 线程里调用
 - **现象**：在 bridge 的 JS 消息处理器里直接调用 `WKWebView.printOperationWithPrintInfo_().runOperation()`，或经 `AppHelper.callAfter` 派发到 Cocoa 主线程执行，都会卡死并持续写出超大 PDF（实测 0.5~1GB）。
 - **原因**：WKWebView 的打印操作需要在自己的线程上下文里完成分页；在 Cocoa 主 RunLoop 线程中重入会与 WebKit 内部渲染循环互锁。

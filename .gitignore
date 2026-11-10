@@ -28,3 +28,5 @@ env/
 # ---- 编辑器 ----
 .vscode/
 .idea/
+# ---- 打包生成物（图标中间产物） ----
+/packaging/AppIcon.iconset/

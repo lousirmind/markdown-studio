@@ -6,9 +6,11 @@ Initializes PyWebView native window and binds the modular Python backend bridge.
 """
 
 import argparse
+import json
 import os
 import sys
 import tempfile
+import time
 import webview
 
 from backend.bridge import DesktopBridge
@@ -163,6 +165,91 @@ def run_headless_check() -> int:
     return 0 if passed == total else 1
 
 
+def _preferred_screen():
+    """Pick the built-in display so self-test windows never cover the active one."""
+    try:
+        from AppKit import NSScreen
+        from Quartz import CGDisplayIsBuiltin
+
+        builtin_index = None
+        for index, screen in enumerate(NSScreen.screens()):
+            display_id = screen.deviceDescription().objectForKey_("NSScreenNumber")
+            if display_id is not None and CGDisplayIsBuiltin(int(display_id)):
+                builtin_index = index
+                break
+        screens = list(getattr(webview, "screens", []) or [])
+        if builtin_index is not None and builtin_index < len(screens):
+            return screens[builtin_index]
+    except Exception:
+        return None
+    return None
+
+
+def run_smoke_test() -> int:
+    """Boot the real frontend in a hidden window and verify it renders.
+
+    Used to validate a frozen .app bundle end-to-end without showing a window:
+    confirms the bridge handshake, the welcome document and the editor engine.
+    """
+    bridge = DesktopBridge()
+    if getattr(sys, "frozen", False):
+        base_dir = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(sys.executable)))
+    else:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+    frontend_html = os.path.join(base_dir, "frontend", "index.html")
+    if not os.path.isfile(frontend_html):
+        print(f"[smoke] frontend not found: {frontend_html}")
+        return 2
+
+    screen = _preferred_screen()
+    window_kwargs = {"screen": screen, "x": 40, "y": 40} if screen is not None else {}
+    window = webview.create_window(
+        title="Markdown Studio [Self Test]",
+        url=frontend_html,
+        js_api=bridge,
+        width=900,
+        height=600,
+        focus=False,
+        **window_kwargs,
+    )
+    bridge.set_window(window)
+    state = {"ok": False, "report": None}
+
+    def probe(win):
+        deadline = time.time() + 40
+        while time.time() < deadline:
+            try:
+                raw = win.evaluate_js(
+                    "(() => { if (!window.AppStore || !window.BridgeClient) return '';"
+                    " const t = window.AppStore.getActiveTab ? window.AppStore.getActiveTab() : null;"
+                    " return JSON.stringify({tab: t ? t.name : null, chars: t ? t.content.length : 0,"
+                    " mode: window.AppStore.getState().editorMode,"
+                    " engine: typeof window.EditorEngine,"
+                    " errors: (window.__test_js_errors || []).length}); })()"
+                )
+            except Exception:
+                raw = None
+            if raw:
+                try:
+                    data = json.loads(raw)
+                except Exception:
+                    data = None
+                if data and data.get("tab") and data.get("chars", 0) > 100:
+                    data["ok"] = data.get("engine") == "object" and data.get("errors", 0) == 0
+                    state["report"] = data
+                    state["ok"] = bool(data["ok"])
+                    break
+            time.sleep(0.25)
+        print("[smoke] " + json.dumps(state, ensure_ascii=False))
+        try:
+            win.destroy()
+        except Exception:
+            pass
+
+    webview.start(probe, window, http_server=True)
+    return 0 if state["ok"] else 1
+
+
 def main():
     parser = argparse.ArgumentParser(description="Markdown Studio - 独立阅读与编辑器")
     parser.add_argument("file", nargs="?", default=None, help="Optional Markdown file to open")
@@ -171,10 +258,18 @@ def main():
         action="store_true",
         help="Run automated backend tests without opening a window",
     )
+    parser.add_argument(
+        "--smoke-test",
+        action="store_true",
+        help="Boot the real frontend in a hidden window and verify it renders",
+    )
     args = parser.parse_args()
 
     if args.headless_check:
         sys.exit(run_headless_check())
+
+    if args.smoke_test:
+        sys.exit(run_smoke_test())
 
     # Resolve target file if specified
     initial_file = None
@@ -188,8 +283,12 @@ def main():
     # Initialize Desktop Bridge Facade
     bridge = DesktopBridge(initial_file=initial_file)
 
-    # Locate index.html
-    base_dir = os.path.dirname(os.path.abspath(__file__))
+    # Locate bundled resources. When frozen by PyInstaller the app resources
+    # live in sys._MEIPASS (Contents/Frameworks in the .app bundle).
+    if getattr(sys, "frozen", False):
+        base_dir = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(sys.executable)))
+    else:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
     frontend_html = os.path.join(base_dir, "frontend", "index.html")
 
     # If frontend/index.html is not yet created by frontend subagents, create fallback info page
