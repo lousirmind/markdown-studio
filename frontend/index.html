@@ -53,6 +53,12 @@
               <path d="M0 2.5A1.5 1.5 0 0 1 1.5 1h13A1.5 1.5 0 0 1 16 2.5v11a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 0 13.5v-11ZM5 2H1.5a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5H5V2Zm1 12h8.5a.5.5 0 0 0 .5-.5v-11a.5.5 0 0 0-.5-.5H6v12Z"/>
             </svg>
           </button>
+          <button id="btn-command-palette" class="btn-icon" title="快速打开 / 命令面板 (Cmd/Ctrl+P，Cmd/Ctrl+Shift+P 命令)" aria-haspopup="dialog" aria-expanded="false" aria-controls="command-palette">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2.5 2.5 6 6 2.5 9.5"/>
+              <path d="M8 10.5h5.5"/>
+            </svg>
+          </button>
           <button id="btn-open-file" class="btn-icon" title="打开文件 (Cmd/Ctrl+O)">
             <svg viewBox="0 0 16 16" fill="currentColor">
               <path d="M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5L14 4.5Zm-3 0A1.5 1.5 0 0 1 9.5 3V1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4.5h-2Z"/>
@@ -418,6 +424,24 @@
       </div>
     </div>
 
+    <!-- Quick Open / Command Palette Overlay (command-palette.js) -->
+    <div id="command-palette" class="command-palette hidden" role="dialog" aria-modal="true" aria-label="快速打开" aria-hidden="true" data-palette-mode="files">
+      <div class="cp-backdrop" aria-hidden="true"></div>
+      <div class="cp-panel" role="document">
+        <div class="cp-input-row">
+          <span id="cp-mode-icon" class="cp-mode-icon" aria-hidden="true">⌕</span>
+          <input id="cp-input" class="cp-input" type="text" placeholder="输入文件名或路径…" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="cp-list" aria-label="搜索工作区文件" />
+          <span id="cp-mode-label" class="cp-mode-label">文件</span>
+          <button id="cp-close" class="cp-close" type="button" title="关闭 (Esc)" aria-label="关闭">✕</button>
+        </div>
+        <div id="cp-list" class="cp-list" role="listbox" aria-label="文件列表"></div>
+        <div class="cp-footer">
+          <span id="cp-count" class="cp-count">0 个文件</span>
+          <span class="cp-hints">↑↓ 选择 · ↵ 打开 · Esc 关闭</span>
+        </div>
+      </div>
+    </div>
+
     <!-- Toast Notification Container -->
     <div id="toast-container" class="toast-container"></div>
   </div>
@@ -437,6 +461,7 @@
   <script src="./js/modules/lightbox.js"></script>
   <script src="./js/modules/exporter-status.js"></script>
   <script src="./js/modules/search-replace.js"></script>
+  <script src="./js/modules/command-palette.js"></script>
   <script src="./js/app.js"></script>
 </body>
 </html>

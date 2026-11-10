@@ -1774,3 +1774,304 @@
   }
 }
 
+
+/* ==========================================================================
+   Quick Open / Command Palette (command-palette.js)
+   Centered, non-native overlay reused by both Cmd/Ctrl+P and Cmd/Ctrl+Shift+P.
+   All colors come from theme CSS variables (light / dark / auto).
+   ========================================================================== */
+.command-palette {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: max(10vh, 64px) 16px 24px;
+  box-sizing: border-box;
+}
+
+#btn-command-palette.active {
+  background-color: var(--btn-bg-active);
+  color: var(--text-primary);
+}
+
+.cp-backdrop {
+  position: absolute;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.24);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+#app-root[data-theme="dark"] .cp-backdrop {
+  background-color: rgba(0, 0, 0, 0.46);
+}
+
+.cp-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(640px, calc(100vw - 32px));
+  max-height: min(68vh, 540px);
+  overflow: hidden;
+  background-color: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  animation: commandPaletteIn 0.16s ease-out;
+}
+
+/* Opacity stays 1 in every keyframe: a throttled WKWebView must never leave
+   the palette invisible. */
+@keyframes commandPaletteIn {
+  from {
+    transform: translateY(-6px) scale(0.99);
+  }
+  to {
+    transform: translateY(0) scale(1);
+  }
+}
+
+.cp-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  height: 50px;
+  padding: 0 10px 0 14px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.cp-mode-icon {
+  flex-shrink: 0;
+  width: 18px;
+  text-align: center;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--text-muted);
+}
+
+.cp-input {
+  flex: 1;
+  min-width: 0;
+  height: 48px;
+  padding: 0;
+  border: none;
+  outline: none;
+  background-color: transparent;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 15px;
+  letter-spacing: 0.01em;
+  user-select: text;
+}
+
+.cp-input::placeholder {
+  color: var(--text-muted);
+}
+
+.cp-mode-label {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background-color: var(--accent-subtle);
+  color: var(--accent-color);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  user-select: none;
+}
+
+.cp-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.cp-close:hover {
+  background-color: var(--btn-bg-hover);
+  color: var(--text-primary);
+}
+
+.cp-list {
+  flex: 1;
+  min-height: 0;
+  padding: 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.cp-item {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  user-select: none;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.cp-item:hover:not(.active) {
+  background-color: var(--btn-bg-hover);
+}
+
+.cp-item.active {
+  background-color: var(--accent-subtle);
+  border-color: var(--accent-border);
+}
+
+.cp-item:focus-visible {
+  outline: none;
+  border-color: var(--border-focus);
+}
+
+.cp-item-icon {
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-secondary);
+}
+
+.cp-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.cp-item-title {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cp-item-sub {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cp-item.active .cp-item-sub {
+  color: var(--text-secondary);
+}
+
+.cp-item-extra {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
+.cp-item-badge {
+  padding: 1px 5px;
+  border-radius: var(--radius-pill);
+  background-color: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.cp-match {
+  color: var(--accent-color);
+  font-weight: 600;
+}
+
+.cp-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 130px;
+  padding: 22px 16px;
+  text-align: center;
+}
+
+.cp-empty-title {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cp-empty-hint {
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.cp-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border-top: 1px solid var(--border-subtle);
+  background-color: var(--bg-secondary);
+  color: var(--text-muted);
+  font-size: 11px;
+  user-select: none;
+}
+
+.cp-count {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cp-hints {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* Keep the palette usable in narrow windows (e.g. 900px wide). */
+@media (max-width: 900px) {
+  .command-palette {
+    padding: 8vh 12px 20px;
+  }
+
+  .cp-panel {
+    width: calc(100vw - 24px);
+    max-height: 72vh;
+  }
+}
+
+@media (max-width: 640px) {
+  .cp-hints {
+    display: none;
+  }
+
+  .cp-item {
+    padding: 8px;
+  }
+}
+

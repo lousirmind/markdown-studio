@@ -43,6 +43,7 @@
         { name: 'Lightbox', module: window.Lightbox },
         { name: 'ExporterStatus', module: window.ExporterStatus },
         { name: 'SearchReplace', module: window.SearchReplace },
+        { name: 'CommandPalette', module: window.CommandPalette },
       ];
 
       for (let i = 0; i < modules.length; i++) {
