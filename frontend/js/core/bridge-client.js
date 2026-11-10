@@ -482,13 +482,16 @@
     },
 
     /**
-     * Export the current document to a paginated A4 PDF file.
+     * Export the current document to a paginated PDF file.
      * @param {string} defaultName Suggested file name
      * @param {string} [targetPath] Optional absolute path (used by tests to skip the dialog)
+     * @param {object} [options] PDF layout options: { paper: 'a4'|'letter'|'a5',
+     *   orientation: 'portrait'|'landscape', margin: 'none'|'narrow'|'standard'|'wide',
+     *   header_footer: boolean, scale: 0.5|0.75|1|1.25|1.5 }
      * @returns {Promise<{ success: boolean, path?: string, pages?: number, error?: string }>}
      */
-    async exportPdf(defaultName, targetPath) {
-      return callBridge('exportPdf', defaultName, targetPath || null);
+    async exportPdf(defaultName, targetPath, options) {
+      return callBridge('exportPdf', defaultName, targetPath || null, options || null);
     },
 
     /**

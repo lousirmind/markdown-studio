@@ -92,11 +92,76 @@
               <path d="M4.708 5.704a.75.75 0 0 0-1.06-1.06L.998 7.294a.75.75 0 0 0 0 1.06l2.65 2.65a.75.75 0 0 0 1.06-1.06L2.59 8.25l2.118-2.546Zm6.584 0 2.118 2.546-2.118 2.546a.75.75 0 0 0 1.06 1.06l2.65-2.65a.75.75 0 0 0 0-1.06l-2.65-2.65a.75.75 0 0 0-1.06 1.06Zm-4.93 6.94 2.5-9.5a.75.75 0 1 0-1.448-.38l-2.5 9.5a.75.75 0 0 0 1.448.38Z"/>
             </svg>
           </button>
-          <button id="btn-export-pdf" class="btn-icon" title="导出 PDF 文件 (A4 分页)">
-            <svg viewBox="0 0 16 16" fill="currentColor">
-              <path d="M2.5 5A1.5 1.5 0 0 0 1 6.5v4A1.5 1.5 0 0 0 2.5 12h1v1.5a1.5 1.5 0 0 0 1.5 1.5h6a1.5 1.5 0 0 0 1.5-1.5V12h1a1.5 1.5 0 0 0 1.5-1.5v-4A1.5 1.5 0 0 0 13.5 5h-11Zm2.5-3A1.5 1.5 0 0 1 6.5.5h3A1.5 1.5 0 0 1 11 2v2H5V2Zm6 10H5v2h6v-2Z"/>
-            </svg>
-          </button>
+          <div class="pdf-options-anchor">
+            <button id="btn-export-pdf" class="btn-icon" title="导出 PDF 文件（当前：A4 纵向）">
+              <svg viewBox="0 0 16 16" fill="currentColor">
+                <path d="M2.5 5A1.5 1.5 0 0 0 1 6.5v4A1.5 1.5 0 0 0 2.5 12h1v1.5a1.5 1.5 0 0 0 1.5 1.5h6a1.5 1.5 0 0 0 1.5-1.5V12h1a1.5 1.5 0 0 0 1.5-1.5v-4A1.5 1.5 0 0 0 13.5 5h-11Zm2.5-3A1.5 1.5 0 0 1 6.5.5h3A1.5 1.5 0 0 1 11 2v2H5V2Zm6 10H5v2h6v-2Z"/>
+              </svg>
+            </button>
+            <button id="btn-pdf-options" class="btn-icon btn-pdf-options" title="PDF 导出设置（纸张 / 方向 / 边距 / 页眉页脚 / 缩放）" aria-haspopup="dialog" aria-expanded="false" aria-controls="pdf-options-popover">
+              <svg viewBox="0 0 16 16" fill="currentColor" class="pdf-options-caret">
+                <path d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06Z"/>
+              </svg>
+            </button>
+
+            <!-- Lightweight, non-blocking PDF export options popover -->
+            <div id="pdf-options-popover" class="pdf-options-popover hidden" role="dialog" aria-label="PDF 导出设置">
+              <div class="pdf-options-header">
+                <span class="pdf-options-title">PDF 导出设置</span>
+                <button id="btn-close-pdf-options" class="pdf-options-close" title="关闭 (Esc)" aria-label="关闭">✕</button>
+              </div>
+
+              <div class="pdf-options-body">
+                <div class="pdf-option-field">
+                  <label for="pdf-opt-paper">纸张</label>
+                  <select id="pdf-opt-paper">
+                    <option value="a4">A4（595 × 842 pt）</option>
+                    <option value="letter">Letter（612 × 792 pt）</option>
+                    <option value="a5">A5（420 × 595 pt）</option>
+                  </select>
+                </div>
+
+                <div class="pdf-option-field">
+                  <label for="pdf-opt-orientation">方向</label>
+                  <select id="pdf-opt-orientation">
+                    <option value="portrait">纵向</option>
+                    <option value="landscape">横向</option>
+                  </select>
+                </div>
+
+                <div class="pdf-option-field">
+                  <label for="pdf-opt-margin">页边距</label>
+                  <select id="pdf-opt-margin">
+                    <option value="none">无</option>
+                    <option value="narrow">窄（20pt）</option>
+                    <option value="standard">标准（40pt）</option>
+                    <option value="wide">宽（60pt）</option>
+                  </select>
+                </div>
+
+                <div class="pdf-option-field">
+                  <label for="pdf-opt-scale">缩放</label>
+                  <select id="pdf-opt-scale">
+                    <option value="0.5">50%</option>
+                    <option value="0.75">75%</option>
+                    <option value="1">100%</option>
+                    <option value="1.25">125%</option>
+                    <option value="1.5">150%</option>
+                  </select>
+                </div>
+
+                <label class="pdf-option-check" for="pdf-opt-header-footer">
+                  <input type="checkbox" id="pdf-opt-header-footer" />
+                  <span>显示页眉 / 页脚（系统标题与页码）</span>
+                </label>
+              </div>
+
+              <div class="pdf-options-footer">
+                <div id="pdf-options-summary" class="pdf-options-summary">A4 纵向 · 标准边距 (40pt) · 100%</div>
+                <button id="btn-pdf-export-now" class="btn-primary-subtle">导出 PDF</button>
+              </div>
+            </div>
+          </div>
           <button id="btn-toggle-settings" class="btn-icon" title="外观与排版设置">
             <svg viewBox="0 0 16 16" fill="currentColor">
               <path d="M8 4.75a3.25 3.25 0 1 0 0 6.5 3.25 3.25 0 0 0 0-6.5ZM9.75 8a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0Z"/>

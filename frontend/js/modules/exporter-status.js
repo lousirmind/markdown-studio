@@ -60,6 +60,314 @@
     };
   }
 
+  // ---------------- PDF 导出选项（偏好 key: pdfExport） ----------------
+  // 与 backend/print_service.py 的选项模型保持一致；所有非法值在前后端都会
+  // 回退到当前的历史默认行为（A4 / 纵向 / 标准 40pt / 无页眉页脚 / 100%）。
+  const PDF_PREF_KEY = 'pdfExport';
+  const PDF_DEFAULT_OPTIONS = {
+    paper: 'a4',
+    orientation: 'portrait',
+    margin: 'standard',
+    header_footer: false,
+    scale: 1.0,
+  };
+  const PDF_PAPER_LABELS = { a4: 'A4', letter: 'Letter', a5: 'A5' };
+  const PDF_ORIENTATION_LABELS = { portrait: '纵向', landscape: '横向' };
+  const PDF_MARGIN_LABELS = {
+    none: '无边距',
+    narrow: '窄边距 (20pt)',
+    standard: '标准边距 (40pt)',
+    wide: '宽边距 (60pt)',
+  };
+  const PDF_MARGIN_POINTS = { none: 0, narrow: 20, standard: 40, wide: 60 };
+  const PDF_SCALE_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5];
+  // Slightly longer than Appearance's 500ms debounce so a preference save
+  // already queued there cannot overwrite a newer pdfExport snapshot.
+  const PDF_PREFS_SAVE_DEBOUNCE_MS = 650;
+
+  let pdfOptions = Object.assign({}, PDF_DEFAULT_OPTIONS);
+  let pdfPrefsSaveTimer = null;
+  let pdfOutsideClickBound = false;
+
+  function normalizePdfBool(value, fallback = false) {
+    if (typeof value === 'boolean') return value;
+    if (value === 1 || value === 0) return value === 1;
+    if (typeof value === 'string') {
+      const token = value.trim().toLowerCase();
+      if (['1', 'true', 'yes', 'on', '开', '开启'].indexOf(token) !== -1) return true;
+      if (['0', 'false', 'no', 'off', '关', '关闭', ''].indexOf(token) !== -1) return false;
+    }
+    return fallback;
+  }
+
+  /**
+   * Coerce an untrusted pdfExport preference into the canonical option model.
+   * Each invalid field independently falls back to its default; never throws.
+   */
+  function normalizePdfOptions(raw) {
+    const src = raw && typeof raw === 'object' ? raw : {};
+
+    const paperToken = typeof src.paper === 'string' ? src.paper.trim().toLowerCase() : '';
+    const paper = PDF_PAPER_LABELS[paperToken] ? paperToken : PDF_DEFAULT_OPTIONS.paper;
+
+    const orientationToken =
+      typeof src.orientation === 'string' ? src.orientation.trim().toLowerCase() : '';
+    const orientation = PDF_ORIENTATION_LABELS[orientationToken]
+      ? orientationToken
+      : PDF_DEFAULT_OPTIONS.orientation;
+
+    let marginToken = src.margin;
+    if (typeof marginToken === 'string') {
+      marginToken = marginToken.trim().toLowerCase();
+    }
+    let margin = PDF_DEFAULT_OPTIONS.margin;
+    if (typeof marginToken === 'number') {
+      const matchedPreset = Object.keys(PDF_MARGIN_POINTS).find(
+        (key) => PDF_MARGIN_POINTS[key] === marginToken
+      );
+      if (matchedPreset) margin = matchedPreset;
+    } else if (typeof marginToken === 'string' && PDF_MARGIN_POINTS[marginToken] !== undefined) {
+      margin = marginToken;
+    }
+
+    let scaleToken = src.scale;
+    if (typeof scaleToken === 'string') {
+      scaleToken = scaleToken.trim().replace('%', '');
+    }
+    let scale = Number(scaleToken);
+    if (!isFinite(scale)) {
+      scale = PDF_DEFAULT_OPTIONS.scale;
+    } else if (scale > 1.5 && scale <= 300) {
+      // Percent-style stored values (50 / 75 / 100 / 125 / 150).
+      scale = scale / 100;
+    }
+    const matchedScale = PDF_SCALE_OPTIONS.find((value) => Math.abs(value - scale) < 0.001);
+    scale = matchedScale === undefined ? PDF_DEFAULT_OPTIONS.scale : matchedScale;
+
+    const headerValue =
+      src.header_footer !== undefined ? src.header_footer : src.headerFooter;
+
+    return {
+      paper,
+      orientation,
+      margin,
+      header_footer: normalizePdfBool(headerValue, false),
+      scale,
+    };
+  }
+
+  function pdfOptionsDescriptor(options) {
+    const opts = options || pdfOptions;
+    return (PDF_PAPER_LABELS[opts.paper] || 'A4') + ' ' +
+      (PDF_ORIENTATION_LABELS[opts.orientation] || '纵向');
+  }
+
+  function pdfOptionsDetail(options) {
+    const opts = options || pdfOptions;
+    const parts = [
+      pdfOptionsDescriptor(opts),
+      PDF_MARGIN_LABELS[opts.margin] || PDF_MARGIN_LABELS.standard,
+      Math.round(opts.scale * 100) + '%',
+    ];
+    if (opts.header_footer) parts.push('页眉页脚');
+    return parts.join(' · ');
+  }
+
+  function syncPdfOptionsForm() {
+    const paperEl = document.getElementById('pdf-opt-paper');
+    if (paperEl) paperEl.value = pdfOptions.paper;
+
+    const orientationEl = document.getElementById('pdf-opt-orientation');
+    if (orientationEl) orientationEl.value = pdfOptions.orientation;
+
+    const marginEl = document.getElementById('pdf-opt-margin');
+    if (marginEl) marginEl.value = pdfOptions.margin;
+
+    const scaleEl = document.getElementById('pdf-opt-scale');
+    if (scaleEl) scaleEl.value = String(pdfOptions.scale);
+
+    const headerFooterEl = document.getElementById('pdf-opt-header-footer');
+    if (headerFooterEl) headerFooterEl.checked = !!pdfOptions.header_footer;
+
+    const summaryEl = document.getElementById('pdf-options-summary');
+    if (summaryEl) summaryEl.textContent = pdfOptionsDetail(pdfOptions);
+  }
+
+  function updatePdfOptionButtons() {
+    const exportBtn = document.getElementById('btn-export-pdf');
+    if (exportBtn) {
+      exportBtn.title = '导出 PDF 文件（当前：' + pdfOptionsDetail(pdfOptions) + '）';
+    }
+
+    const optionsBtn = document.getElementById('btn-pdf-options');
+    if (optionsBtn) {
+      optionsBtn.title =
+        'PDF 导出设置（当前：' + pdfOptionsDescriptor(pdfOptions) + '）';
+    }
+  }
+
+  /**
+   * Persist the whole preference tree (current AppStore snapshot + pdfExport),
+   * so unrelated preferences saved by Appearance are never clobbered.
+   */
+  async function persistPdfOptions() {
+    if (!window.BridgeClient || typeof window.BridgeClient.savePreferences !== 'function') {
+      return;
+    }
+    try {
+      const storePrefs =
+        window.AppStore && typeof window.AppStore.getState === 'function'
+          ? window.AppStore.getState().preferences
+          : {};
+      const nextPrefs = Object.assign({}, storePrefs || {}, {
+        [PDF_PREF_KEY]: Object.assign({}, pdfOptions),
+      });
+      await window.BridgeClient.savePreferences(nextPrefs);
+    } catch (err) {
+      console.warn('[ExporterStatus] Failed to persist PDF options:', err);
+    }
+  }
+
+  function schedulePersistPdfOptions(immediate) {
+    if (pdfPrefsSaveTimer) {
+      clearTimeout(pdfPrefsSaveTimer);
+      pdfPrefsSaveTimer = null;
+    }
+    if (immediate) {
+      persistPdfOptions();
+      return;
+    }
+    pdfPrefsSaveTimer = setTimeout(() => {
+      pdfPrefsSaveTimer = null;
+      persistPdfOptions();
+    }, PDF_PREFS_SAVE_DEBOUNCE_MS);
+  }
+
+  /**
+   * Apply a partial option change: normalize, mirror into AppStore preferences,
+   * refresh the popover and persist to disk (debounced).
+   */
+  function setPdfOptions(partial, persist) {
+    const shouldPersist = persist !== false;
+    pdfOptions = normalizePdfOptions(
+      Object.assign({}, pdfOptions, partial && typeof partial === 'object' ? partial : {})
+    );
+
+    if (window.AppStore && typeof window.AppStore.updatePreference === 'function') {
+      window.AppStore.updatePreference(PDF_PREF_KEY, Object.assign({}, pdfOptions));
+    }
+
+    syncPdfOptionsForm();
+    updatePdfOptionButtons();
+    if (shouldPersist) schedulePersistPdfOptions(false);
+    return Object.assign({}, pdfOptions);
+  }
+
+  function loadPdfOptions(prefs) {
+    const stored = prefs && typeof prefs === 'object' ? prefs[PDF_PREF_KEY] : null;
+    pdfOptions = normalizePdfOptions(stored);
+    syncPdfOptionsForm();
+    updatePdfOptionButtons();
+    return Object.assign({}, pdfOptions);
+  }
+
+  function isPdfOptionsOpen() {
+    const popover = document.getElementById('pdf-options-popover');
+    return !!popover && !popover.classList.contains('hidden');
+  }
+
+  function setPdfOptionsOpen(open) {
+    const popover = document.getElementById('pdf-options-popover');
+    const btn = document.getElementById('btn-pdf-options');
+    if (!popover) return;
+
+    if (open) {
+      syncPdfOptionsForm();
+      updatePdfOptionButtons();
+    }
+    popover.classList.toggle('hidden', !open);
+    if (btn) {
+      btn.classList.toggle('active', !!open);
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    if (!open) schedulePersistPdfOptions(false);
+  }
+
+  /**
+   * Wire the popover: toggle button, field changes, Esc / outside click close,
+   * and the direct "导出 PDF" action.
+   */
+  function bindPdfOptionsUI() {
+    const optionsBtn = document.getElementById('btn-pdf-options');
+    if (optionsBtn) {
+      optionsBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        setPdfOptionsOpen(!isPdfOptionsOpen());
+      });
+    }
+
+    const closeBtn = document.getElementById('btn-close-pdf-options');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => setPdfOptionsOpen(false));
+    }
+
+    const bindSelect = (id, key) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('change', () => {
+        setPdfOptions({ [key]: el.value });
+      });
+    };
+    bindSelect('pdf-opt-paper', 'paper');
+    bindSelect('pdf-opt-orientation', 'orientation');
+    bindSelect('pdf-opt-margin', 'margin');
+
+    const scaleEl = document.getElementById('pdf-opt-scale');
+    if (scaleEl) {
+      scaleEl.addEventListener('change', () => {
+        setPdfOptions({ scale: Number(scaleEl.value) });
+      });
+    }
+
+    const headerFooterEl = document.getElementById('pdf-opt-header-footer');
+    if (headerFooterEl) {
+      headerFooterEl.addEventListener('change', () => {
+        setPdfOptions({ header_footer: !!headerFooterEl.checked });
+      });
+    }
+
+    const exportNowBtn = document.getElementById('btn-pdf-export-now');
+    if (exportNowBtn) {
+      exportNowBtn.addEventListener('click', () => {
+        schedulePersistPdfOptions(true);
+        setPdfOptionsOpen(false);
+        handleExportPdf();
+      });
+    }
+
+    if (!pdfOutsideClickBound) {
+      pdfOutsideClickBound = true;
+      // mousedown (not click) so a click on the header's other buttons closes
+      // the popover before their own handlers run.
+      document.addEventListener('mousedown', (event) => {
+        if (!isPdfOptionsOpen()) return;
+        const popover = document.getElementById('pdf-options-popover');
+        const btn = document.getElementById('btn-pdf-options');
+        if (popover && popover.contains(event.target)) return;
+        if (btn && btn.contains(event.target)) return;
+        setPdfOptionsOpen(false);
+      });
+
+      document.addEventListener('keydown', (event) => {
+        if ((event.key === 'Escape' || event.key === 'Esc') && isPdfOptionsOpen()) {
+          event.preventDefault();
+          event.stopPropagation();
+          setPdfOptionsOpen(false);
+        }
+      });
+    }
+  }
+
   // ---------------- 状态栏刷新合并（P2-7） ----------------
   let statusUpdateScheduled = false;
   let statusFallbackTimer = null;
@@ -402,12 +710,21 @@
   }
 
   /**
-   * Export the current document to a paginated A4 PDF through the native
-   * WKWebView print pipeline. Falls back to window.print() in browser mock mode.
+   * Export the current document to a paginated PDF through the native
+   * WKWebView print pipeline, using the persisted PDF layout options.
+   * Falls back to window.print() in browser mock mode.
    */
   async function handleExportPdf() {
     const bridgeAvailable =
       window.BridgeClient && typeof window.BridgeClient.exportPdf === 'function';
+
+    // Snapshot and normalize right before printing: a corrupted preference
+    // must never block an export.
+    const exportOptions = normalizePdfOptions(pdfOptions);
+    pdfOptions = exportOptions;
+    syncPdfOptionsForm();
+    updatePdfOptionButtons();
+    setPdfOptionsOpen(false);
 
     if (!bridgeAvailable) {
       window.print();
@@ -423,7 +740,7 @@
     let prevMode = null;
     try {
       prevMode = await prepareReaderForPdfExport();
-      const startRes = await window.BridgeClient.exportPdf(defaultName);
+      const startRes = await window.BridgeClient.exportPdf(defaultName, null, exportOptions);
       const started = startRes && (startRes.ok || startRes.success);
       if (!started) {
         const startError = (startRes && startRes.error) || '';
@@ -461,9 +778,11 @@
         const targetPath = data.path || startData.path || '';
         const pages = data.pages;
         const fileName = targetPath ? targetPath.split(/[/\\]/).pop() : defaultName;
+        const descriptor = pdfOptionsDescriptor(exportOptions);
+        const detail = pages ? `（${pages} 页, ${descriptor}）` : `（${descriptor}）`;
         if (window.AppBus) {
           window.AppBus.emit('notify:toast', {
-            message: `PDF 已导出${pages ? `（${pages} 页）` : ''}: ${fileName}`,
+            message: `PDF 已导出${detail}: ${fileName}`,
             type: 'success',
           });
         }
@@ -628,10 +947,16 @@
         btnExportPdf.addEventListener('click', handleExportPdf);
       }
 
-      // 2. Setup keyboard shortcuts
+      // 2. PDF export options popover + persisted preferences (pdfExport)
+      bindPdfOptionsUI();
+      if (window.AppStore && typeof window.AppStore.getState === 'function') {
+        loadPdfOptions(window.AppStore.getState().preferences);
+      }
+
+      // 3. Setup keyboard shortcuts
       initKeyboardShortcuts();
 
-      // 3. Register AppBus events
+      // 4. Register AppBus events
       if (window.AppBus) {
         // 所有状态变更事件统一走 rAF 合并，避免每个事件都重算全文统计 + 重写 DOM
         window.AppBus.on('tab:switched', () => scheduleStatusBarUpdate());
@@ -644,6 +969,18 @@
             window.AppStore.setState({ editorMode: payload.mode });
           }
           scheduleStatusBarUpdate();
+        });
+
+        // PDF 选项可能被外部偏好写入（例如偏好文件在启动后才加载）：
+        // 仅在规范化结果真正变化时同步 UI，避免与自身写入形成循环。
+        window.AppBus.on('prefs:changed', (payload) => {
+          const prefs = payload && payload.preferences;
+          if (!prefs || prefs[PDF_PREF_KEY] === undefined) return;
+          const next = normalizePdfOptions(prefs[PDF_PREF_KEY]);
+          if (JSON.stringify(next) === JSON.stringify(pdfOptions)) return;
+          pdfOptions = next;
+          syncPdfOptionsForm();
+          updatePdfOptionButtons();
         });
 
         // Toast notifications
@@ -664,6 +1001,28 @@
 
     update() {
       updateStatusBar();
+    },
+
+    // ---- PDF export options (paper/orientation/margin/header-footer/scale) ----
+    getPdfOptions() {
+      return Object.assign({}, pdfOptions);
+    },
+
+    updatePdfOptions(partial) {
+      return setPdfOptions(partial);
+    },
+
+    normalizePdfExportOptions(raw) {
+      return normalizePdfOptions(raw);
+    },
+
+    openPdfOptions(force) {
+      setPdfOptionsOpen(typeof force === 'boolean' ? force : !isPdfOptionsOpen());
+      return isPdfOptionsOpen();
+    },
+
+    exportPdf() {
+      return handleExportPdf();
     },
   };
 

@@ -530,9 +530,21 @@ class DesktopBridge:
         return asset_service.save_clipboard_image(current_md_path, filename, base64_data)
 
     def export_pdf(
-        self, default_name: str = "document.pdf", target_path: Optional[str] = None
+        self,
+        default_name: str = "document.pdf",
+        target_path: Optional[str] = None,
+        options: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Start exporting the current document to a paginated A4 PDF file.
+        """Start exporting the current document to a paginated PDF file.
+
+        Args:
+            default_name: Suggested file name shown by the native save dialog.
+            target_path: Optional absolute output path. Automation/tests pass it
+                to skip the save dialog; the UI always leaves it None.
+            options: Optional PDF layout options forwarded verbatim to
+                print_service.export_pdf (paper / orientation / margin /
+                header_footer / scale). Invalid values fall back to the
+                historical A4 portrait defaults there.
 
         The print operation itself runs on the Cocoa main thread right after
         this bridge call returns: running NSPrintOperation inside a WebKit
@@ -546,6 +558,10 @@ class DesktopBridge:
             save_name = (default_name or "document.pdf").strip() or "document.pdf"
             if not save_name.lower().endswith(".pdf"):
                 save_name += ".pdf"
+
+            # Normalize once so the running state can echo what will be printed
+            # (invalid fields already fall back to defaults, never raising).
+            resolved_options = print_service.normalize_options(options)
 
             resolved_path = target_path
             if not resolved_path:
@@ -566,23 +582,34 @@ class DesktopBridge:
                 "status": "running",
                 "path": abs_path,
                 "started_at": time.time(),
+                "options": resolved_options,
                 "result": None,
             }
 
             import threading
 
             def _run_export() -> None:
-                outcome = print_service.export_pdf(self.window, abs_path)
+                outcome = print_service.export_pdf(
+                    self.window, abs_path, options=resolved_options
+                )
                 self._pdf_export_state = {
                     "status": "done" if outcome.get("ok") else "error",
                     "path": abs_path,
                     "started_at": time.time(),
+                    "options": resolved_options,
                     "result": outcome,
                 }
 
             # Run off the Cocoa main run-loop thread (see print_service notes).
             threading.Thread(target=_run_export, daemon=True).start()
-            return {"ok": True, "data": {"path": abs_path, "status": "running"}}
+            return {
+                "ok": True,
+                "data": {
+                    "path": abs_path,
+                    "status": "running",
+                    "options": resolved_options,
+                },
+            }
         except Exception as e:
             return {"ok": False, "error": "PDF export dialog error: " + str(e)}
 

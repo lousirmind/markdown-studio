@@ -44,6 +44,187 @@
 }
 
 /* ==========================================================================
+   PDF Export Options Popover
+   Lightweight, non-blocking options panel anchored under the PDF export group.
+   ========================================================================== */
+.pdf-options-anchor {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.btn-pdf-options {
+  width: 18px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+}
+
+.btn-pdf-options .pdf-options-caret {
+  width: 12px;
+  height: 12px;
+  transition: transform var(--transition-fast);
+}
+
+.btn-pdf-options.active {
+  background-color: var(--btn-bg-active);
+  color: var(--text-primary);
+}
+
+.btn-pdf-options[aria-expanded="true"] .pdf-options-caret {
+  transform: rotate(180deg);
+}
+
+.pdf-options-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 286px;
+  max-width: calc(100vw - 24px);
+  padding: 12px;
+  box-sizing: border-box;
+  background-color: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  animation: pdfOptionsIn 0.16s ease-out;
+}
+
+.pdf-options-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pdf-options-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.pdf-options-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.pdf-options-close:hover {
+  background-color: var(--btn-bg-hover);
+  color: var(--text-primary);
+}
+
+.pdf-options-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pdf-option-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.pdf-option-field label {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.pdf-option-field select {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 6px;
+  font-size: 12px;
+  font-family: inherit;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--input-border);
+  background-color: var(--input-bg);
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.pdf-option-field select:focus {
+  border-color: var(--input-focus-border);
+}
+
+.pdf-option-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 2px;
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.pdf-option-check input[type="checkbox"] {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--accent-color);
+}
+
+.pdf-option-check span {
+  line-height: 1.4;
+}
+
+.pdf-options-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.pdf-options-summary {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.pdf-options-footer .btn-primary-subtle {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* Keep opacity at 1 in every keyframe: WKWebView throttles animations when the
+   window is not active, and a stalled "from" frame must never hide the panel. */
+@keyframes pdfOptionsIn {
+  from {
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ==========================================================================
    Header & Tabs
    ========================================================================== */
 .header-left,
