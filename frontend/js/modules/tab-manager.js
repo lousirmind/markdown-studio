@@ -510,49 +510,165 @@
   }
 
   /**
-   * Handle drag and drop of Markdown files onto window
+   * Drag & drop: full-window overlay + desktop / mock dispatch.
+   *
+   * Desktop (pywebview): WKWebView never exposes a real File.path, so opening
+   * is handled entirely by the Python bridge (backend/bridge.py
+   * handle_drop_event). That handler is registered on document.body through
+   * pywebview, receives pywebviewFullPath for every dropped item and emits
+   * AppBus file/folder requests. This listener therefore only prevents
+   * WebView navigation and drives the overlay; opening files here as well
+   * would duplicate tabs.
+   *
+   * Browser/mock mode: no Python channel exists, so text files are read with
+   * FileReader and opened as pathless scratch tabs. Images and unsupported
+   * types only show toasts (dropped images are never written to assets/).
+   */
+  const TEXT_FILE_RE = /\.(md|markdown|mdown|txt)$/i;
+  const IMAGE_FILE_RE = /\.(png|jpe?g|gif|webp|bmp|svg|heic|heif|avif|tiff?)$/i;
+  let dragDepth = 0;
+
+  function isFileDrag(e) {
+    const dt = e && e.dataTransfer;
+    if (!dt) return false;
+    let types = [];
+    try {
+      types = Array.from(dt.types || []);
+    } catch (err) {
+      types = [];
+    }
+    // WKWebView may omit dataTransfer.types entirely; treat that as a file
+    // drag so the overlay still appears.
+    return types.length === 0 || types.indexOf('Files') !== -1;
+  }
+
+  function setDropOverlayVisible(visible) {
+    const overlay = document.getElementById('drop-overlay');
+    if (!overlay) return;
+    overlay.classList.toggle('hidden', !visible);
+    overlay.setAttribute('aria-hidden', visible ? 'false' : 'true');
+  }
+
+  function showDropOverlay() {
+    setDropOverlayVisible(true);
+  }
+
+  function hideDropOverlay() {
+    dragDepth = 0;
+    setDropOverlayVisible(false);
+  }
+
+  function toastDrop(message, type) {
+    if (window.AppBus) {
+      window.AppBus.emit('notify:toast', { message, type: type || 'info' });
+    }
+  }
+
+  /**
+   * Browser-only fallback: read a dropped text file into a pathless tab.
+   * Never used in the desktop WebView (see initDragAndDrop).
+   */
+  function openBrowserDroppedFile(file) {
+    if (!file) return;
+
+    if (TEXT_FILE_RE.test(file.name || '')) {
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        if (!window.AppStore) return;
+        const newTab = window.AppStore.addTab({
+          name: file.name,
+          path: null,
+          content: evt.target.result,
+          savedContent: evt.target.result,
+          dirty: false,
+        });
+        renderTabsBar({ scrollActive: true });
+        if (window.AppBus) {
+          window.AppBus.emit('tab:switched', { tab: { ...newTab } });
+        }
+      };
+      reader.onerror = () => {
+        toastDrop(`读取文件失败: ${file.name}`, 'error');
+      };
+      reader.readAsText(file);
+      return;
+    }
+
+    if (IMAGE_FILE_RE.test(file.name || '')) {
+      toastDrop('图片请使用 Cmd+V 粘贴插入', 'info');
+      return;
+    }
+
+    toastDrop(`不支持的文件类型：${file.name}`, 'warning');
+  }
+
+  /**
+   * Register drag & drop behaviour.
+   *
+   * The overlay is shown from dragenter and hidden on dragleave/drop (deeper
+   * element transitions are counted so the overlay does not flicker). The
+   * actual open logic is intentionally split by runtime: Python channel in
+   * the desktop app, FileReader only in the standalone browser/mock mode.
    */
   function initDragAndDrop() {
-    window.addEventListener('dragover', (e) => {
+    window.addEventListener('blur', hideDropOverlay);
+    window.addEventListener('dragend', hideDropOverlay);
+
+    window.addEventListener('dragenter', (e) => {
+      if (!isFileDrag(e)) return;
       e.preventDefault();
       e.stopPropagation();
-      e.dataTransfer.dropEffect = 'copy';
+      dragDepth += 1;
+      showDropOverlay();
+    });
+
+    window.addEventListener('dragover', (e) => {
+      // Always prevent the WebView from navigating to the dropped file.
+      e.preventDefault();
+      e.stopPropagation();
+      if (!isFileDrag(e)) return;
+      try {
+        e.dataTransfer.dropEffect = 'copy';
+      } catch (err) {
+        // Some WebKit builds expose a read-only dataTransfer here.
+      }
+      showDropOverlay();
+    });
+
+    window.addEventListener('dragleave', (e) => {
+      if (!isFileDrag(e)) return;
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (dragDepth === 0) {
+        setDropOverlayVisible(false);
+      }
     });
 
     window.addEventListener('drop', (e) => {
+      // Always prevent the WebView from navigating to the dropped file.
       e.preventDefault();
       e.stopPropagation();
+      hideDropOverlay();
 
-      const files = e.dataTransfer.files;
-      if (!files || files.length === 0) return;
+      if (!isFileDrag(e)) return;
 
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-
-        // Desktop webview provides full file.path
-        if (file.path) {
-          openFile(file.path);
-        } else {
-          // In-browser fallback
-          const reader = new FileReader();
-          reader.onload = (evt) => {
-            const content = evt.target.result;
-            if (window.AppStore) {
-              const newTab = window.AppStore.addTab({
-                name: file.name,
-                path: null,
-                content: content,
-                savedContent: content,
-                dirty: false,
-              });
-              renderTabsBar({ scrollActive: true });
-              if (window.AppBus) {
-                window.AppBus.emit('tab:switched', { tab: { ...newTab } });
-              }
-            }
-          };
-          reader.readAsText(file);
+      // Desktop: the Python drop channel owns opening. Falling back to
+      // FileReader here would create a second (pathless) copy of every tab.
+      const isMock = !!(
+        window.BridgeClient &&
+        typeof window.BridgeClient.isMock === 'function' &&
+        window.BridgeClient.isMock()
+      );
+      if (!isMock) {
+        if (window.__mdStudioDropChannel !== true) {
+          toastDrop('拖拽通道尚未就绪，请使用工具栏的「打开文件」按钮', 'warning');
         }
+        return;
+      }
+
+      const files = e.dataTransfer && e.dataTransfer.files;
+      if (!files || files.length === 0) return;
+      for (let i = 0; i < files.length; i++) {
+        openBrowserDroppedFile(files[i]);
       }
     });
   }

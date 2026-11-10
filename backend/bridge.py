@@ -4,14 +4,17 @@ Acts as a unified JS-Python bridge aggregating config_service, file_service,
 asset_service, and pywebview native desktop dialogs.
 """
 
+import json
 import os
 import sys
+import threading
 import time
 from typing import Any, Dict, List, Optional
 import webview
 
 from . import asset_service
 from . import config_service
+from . import dragdrop_service
 from . import file_service
 from . import print_service
 
@@ -34,9 +37,249 @@ class DesktopBridge:
             self.project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self._pdf_export_state = None
 
+        # Drag & drop native channel state.
+        self._drop_loaded_hook_window = None
+        self._drop_handler_registered = False
+        self._drop_register_attempts = 0
+
     def set_window(self, window):
-        """Bind the active pywebview window instance."""
+        """Bind the active pywebview window instance.
+
+        Also wires the native Finder drag & drop channel. WKWebView never
+        exposes a real path on JS File objects, so the drop entry point must
+        live on the Python side: pywebview only collects file paths when a
+        drop listener exists, and injects pywebviewFullPath into the event.
+        """
         self.window = window
+        self._drop_handler_registered = False
+        self._drop_register_attempts = 0
+
+        # The window may already be loaded (e.g. a bridge attached late):
+        # loaded is a one-shot event, so register immediately in that case.
+        try:
+            if window is not None and window.events.loaded.is_set():
+                self._install_body_drop_handler()
+                return
+        except Exception:
+            pass
+
+        self._install_drop_loaded_hook()
+
+    # -------------------------------------------------------------------------
+    # Native drag & drop (Finder -> window)
+    # -------------------------------------------------------------------------
+    def _install_drop_loaded_hook(self) -> None:
+        """Register a one-time loaded callback that binds the body drop event.
+
+        pywebview cannot register DOM listeners before the page exists, and
+        window.dom.body raises until document.body is available. The loaded
+        event fires after the pywebview JS object has been injected, which is
+        exactly when DOM registration is safe.
+        """
+        window = self.window
+        if window is None:
+            return
+        if self._drop_loaded_hook_window is window:
+            return
+        try:
+            window.events.loaded += self._on_window_loaded
+            self._drop_loaded_hook_window = window
+            print("[dragdrop] loaded hook installed")
+        except Exception as e:
+            print(f"[dragdrop] failed to install loaded hook: {e}")
+
+    def _on_window_loaded(self, *args) -> None:
+        """Called by pywebview right after the page finished loading."""
+        self._install_body_drop_handler()
+
+    def _install_body_drop_handler(self) -> bool:
+        """Bind self.handle_drop_event to document.body's drop event.
+
+        Idempotent per loaded page: the JS flag below is cleared by a reload,
+        so a reload correctly re-binds the handler and re-arms the native
+        pywebview drop path.
+        """
+        window = self.window
+        if window is None:
+            return False
+
+        try:
+            already_bound = bool(
+                window.evaluate_js("window.__mdStudioDropChannel === true")
+            )
+        except Exception:
+            already_bound = False
+
+        if already_bound:
+            self._drop_handler_registered = True
+            return True
+
+        try:
+            window.dom.body.events.drop += self.handle_drop_event
+            window.evaluate_js("window.__mdStudioDropChannel = true; true")
+            self._drop_handler_registered = True
+            print("[dragdrop] body drop handler registered")
+            return True
+        except Exception as e:
+            self._drop_handler_registered = False
+            self._drop_register_attempts += 1
+            print(
+                f"[dragdrop] body drop registration failed "
+                f"(attempt {self._drop_register_attempts}): {e}"
+            )
+            if self._drop_register_attempts <= 5:
+                delay = 0.3 * self._drop_register_attempts
+                threading.Timer(delay, self._install_body_drop_handler).start()
+            return False
+
+    def _pending_drop_paths(self) -> List[Any]:
+        """Snapshot pywebview's native drop queue (private but stable API)."""
+        try:
+            from webview.dom import _dnd_state
+
+            return list(_dnd_state.get("paths") or [])
+        except Exception:
+            return []
+
+    def _consume_pending_drop_paths(self, consumed: List[Dict[str, str]]) -> None:
+        """Remove queue entries that were resolved manually (folders)."""
+        if not consumed:
+            return
+        try:
+            from webview.dom import _dnd_state
+
+            paths = _dnd_state.get("paths")
+            if not isinstance(paths, list):
+                return
+            for item in consumed:
+                target = item.get("path")
+                for index, entry in enumerate(paths):
+                    try:
+                        entry_path = entry[1]
+                    except (TypeError, IndexError):
+                        continue
+                    if entry_path == target:
+                        paths.pop(index)
+                        break
+        except Exception:
+            pass
+
+    def _emit_frontend_event(self, event_name: str, payload: Dict[str, Any]) -> bool:
+        """Emit one AppBus event in the frontend. Returns True on success."""
+        window = self.window
+        if window is None:
+            return False
+
+        # json.dumps handles quotes, backslashes, newlines and non-ASCII paths
+        # (Chinese, spaces, emoji) as valid JS literal text.
+        payload_js = json.dumps(payload, ensure_ascii=False)
+        payload_js = payload_js.replace("\u2028", "\\u2028").replace(
+            "\u2029", "\\u2029"
+        )
+        event_js = json.dumps(event_name)
+        script = (
+            "(() => { if (!window.AppBus) return false;"
+            f" window.AppBus.emit({event_js}, {payload_js});"
+            " return true; })()"
+        )
+        try:
+            return bool(window.evaluate_js(script))
+        except Exception as e:
+            print(f"[dragdrop] emit {event_name} failed: {e}")
+            return False
+
+    def handle_drop_event(self, event: Dict[str, Any]) -> Dict[str, Any]:
+        """Public drop entry point bound to document.body's drop event.
+
+        pywebview calls this on a background thread with the serialized DOM
+        event (including pywebviewFullPath for every file). It never uploads
+        or copies dropped content: documents and folders are forwarded to the
+        frontend via AppBus, images and unsupported items only raise toasts.
+
+        Returns a JSON-serializable summary so the behaviour is testable
+        without a real Finder drag.
+        """
+        if not isinstance(event, dict):
+            return {"ok": False, "error": "Invalid drop event payload"}
+        if self.window is None:
+            return {"ok": False, "error": "Native window not attached"}
+
+        try:
+            parsed = dragdrop_service.process_drop_event(
+                event, pending_paths=self._pending_drop_paths()
+            )
+        except Exception as e:
+            return {"ok": False, "error": f"Failed to parse drop event: {e}"}
+
+        self._consume_pending_drop_paths(parsed.get("consumed") or [])
+
+        errors: List[Dict[str, str]] = []
+        opened: List[str] = []
+
+        workspace = parsed.get("workspace")
+        if workspace:
+            if self._emit_frontend_event("folder:open-request", {"path": workspace}):
+                opened.append(workspace)
+            else:
+                errors.append({"path": workspace, "error": "folder:open-request failed"})
+
+        for path in parsed.get("files") or []:
+            if self._emit_frontend_event("file:open-request", {"path": path}):
+                opened.append(path)
+            else:
+                errors.append({"path": path, "error": "file:open-request failed"})
+
+        for toast in parsed.get("toasts") or []:
+            message = toast.get("message")
+            if not message:
+                continue
+            self._emit_frontend_event(
+                "notify:toast",
+                {"message": message, "type": toast.get("type") or "info"},
+            )
+
+        return {
+            "ok": True,
+            "data": {
+                "files": parsed.get("files") or [],
+                "folders": parsed.get("folders") or [],
+                "images": parsed.get("images") or [],
+                "unsupported": parsed.get("unsupported") or [],
+                "unresolved": parsed.get("unresolved") or [],
+                "workspace": workspace,
+                "ignored_folders": parsed.get("ignored_folders") or [],
+                "opened": opened,
+                "errors": errors,
+            },
+        }
+
+    def get_drop_status(self) -> Dict[str, Any]:
+        """Expose drag & drop registration state for diagnostics / acceptance."""
+        num_listeners = -1
+        try:
+            from webview.dom import _dnd_state
+
+            num_listeners = int(_dnd_state.get("num_listeners", 0))
+        except Exception:
+            pass
+
+        js_channel = None
+        if self.window is not None:
+            try:
+                js_channel = bool(
+                    self.window.evaluate_js("window.__mdStudioDropChannel === true")
+                )
+            except Exception:
+                js_channel = None
+
+        return {
+            "ok": True,
+            "data": {
+                "registered": bool(self._drop_handler_registered),
+                "num_listeners": num_listeners,
+                "js_channel": js_channel,
+            },
+        }
 
     # -------------------------------------------------------------------------
     # Initial State
