@@ -1,0 +1,227 @@
+/**
+ * themes.css - Color System for Light, Dark, and Auto Themes, with Vditor Overrides
+ */
+
+/* ==========================================================================
+   Light Theme (Default macOS Light Mode)
+   ========================================================================== */
+:root,
+[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f5f5f7;
+  --bg-tertiary: #eaeaec;
+  --bg-elevated: #ffffff;
+  --header-bg: rgba(255, 255, 255, 0.82);
+  --statusbar-bg: #f9f9fb;
+
+  --border-color: #e5e5ea;
+  --border-subtle: #f0f0f3;
+  --border-focus: #007aff;
+
+  --text-primary: #1d1d1f;
+  --text-secondary: #6e6e73;
+  --text-muted: #86868b;
+  --text-inverse: #ffffff;
+
+  --accent-color: #007aff;
+  --accent-hover: #0062cc;
+  --accent-active: #004fb0;
+  --accent-subtle: rgba(0, 122, 255, 0.1);
+  --accent-border: rgba(0, 122, 255, 0.3);
+
+  --btn-bg: #f2f2f7;
+  --btn-bg-hover: #e5e5ea;
+  --btn-bg-active: #d1d1d6;
+  --btn-text: #1d1d1f;
+
+  --tab-bg: #f2f2f7;
+  --tab-bg-active: #ffffff;
+  --tab-border: #e5e5ea;
+  --tab-text: #6e6e73;
+  --tab-text-active: #1d1d1f;
+
+  --input-bg: #ffffff;
+  --input-border: #d1d1d6;
+  --input-focus-border: #007aff;
+
+  --scrollbar-thumb: rgba(0, 0, 0, 0.2);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.35);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.12);
+  --shadow-drawer: -4px 0 24px rgba(0, 0, 0, 0.08);
+
+  --code-bg: #f6f8fa;
+  --code-border: #e1e4e8;
+  --table-border: #d0d7de;
+  --table-zebra: #f6f8fa;
+}
+
+/* ==========================================================================
+   Dark Theme (macOS Pro Dark Mode)
+   ========================================================================== */
+[data-theme="dark"] {
+  --bg-primary: #1e1e20;
+  --bg-secondary: #171719;
+  --bg-tertiary: #262629;
+  --bg-elevated: #242426;
+  --header-bg: rgba(30, 30, 32, 0.82);
+  --statusbar-bg: #171719;
+
+  --border-color: #333336;
+  --border-subtle: #29292c;
+  --border-focus: #0a84ff;
+
+  --text-primary: #f5f5f7;
+  --text-secondary: #a1a1a6;
+  --text-muted: #6e6e73;
+  --text-inverse: #1d1d1f;
+
+  --accent-color: #0a84ff;
+  --accent-hover: #409cff;
+  --accent-active: #66b0ff;
+  --accent-subtle: rgba(10, 132, 255, 0.18);
+  --accent-border: rgba(10, 132, 255, 0.4);
+
+  --btn-bg: #2c2c2e;
+  --btn-bg-hover: #3a3a3c;
+  --btn-bg-active: #48484a;
+  --btn-text: #f5f5f7;
+
+  --tab-bg: #171719;
+  --tab-bg-active: #1e1e20;
+  --tab-border: #333336;
+  --tab-text: #a1a1a6;
+  --tab-text-active: #ffffff;
+
+  --input-bg: #242426;
+  --input-border: #3a3a3c;
+  --input-focus-border: #0a84ff;
+
+  --scrollbar-thumb: rgba(255, 255, 255, 0.2);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.35);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.5);
+  --shadow-drawer: -4px 0 24px rgba(0, 0, 0, 0.5);
+
+  --code-bg: #161b22;
+  --code-border: #30363d;
+  --table-border: #30363d;
+  --table-zebra: #161b22;
+}
+
+/* ==========================================================================
+   Auto Theme (System Media Query Preference)
+   ========================================================================== */
+@media (prefers-color-scheme: dark) {
+  [data-theme="auto"] {
+    --bg-primary: #1e1e20;
+    --bg-secondary: #171719;
+    --bg-tertiary: #262629;
+    --bg-elevated: #242426;
+    --header-bg: rgba(30, 30, 32, 0.82);
+    --statusbar-bg: #171719;
+
+    --border-color: #333336;
+    --border-subtle: #29292c;
+    --border-focus: #0a84ff;
+
+    --text-primary: #f5f5f7;
+    --text-secondary: #a1a1a6;
+    --text-muted: #6e6e73;
+    --text-inverse: #1d1d1f;
+
+    --accent-color: #0a84ff;
+    --accent-hover: #409cff;
+    --accent-active: #66b0ff;
+    --accent-subtle: rgba(10, 132, 255, 0.18);
+    --accent-border: rgba(10, 132, 255, 0.4);
+
+    --btn-bg: #2c2c2e;
+    --btn-bg-hover: #3a3a3c;
+    --btn-bg-active: #48484a;
+    --btn-text: #f5f5f7;
+
+    --tab-bg: #171719;
+    --tab-bg-active: #1e1e20;
+    --tab-border: #333336;
+    --tab-text: #a1a1a6;
+    --tab-text-active: #ffffff;
+
+    --input-bg: #242426;
+    --input-border: #3a3a3c;
+    --input-focus-border: #0a84ff;
+
+    --scrollbar-thumb: rgba(255, 255, 255, 0.2);
+    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.35);
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.5);
+    --shadow-drawer: -4px 0 24px rgba(0, 0, 0, 0.5);
+
+    --code-bg: #161b22;
+    --code-border: #30363d;
+    --table-border: #30363d;
+    --table-zebra: #161b22;
+  }
+}
+
+/* ==========================================================================
+   Vditor Theme Overrides (Seamless Chrome Integration)
+   ========================================================================== */
+.vditor {
+  border: none !important;
+  border-radius: 0 !important;
+  background-color: var(--bg-primary) !important;
+}
+
+.vditor-toolbar {
+  background-color: var(--bg-secondary) !important;
+  border-bottom: 1px solid var(--border-color) !important;
+  padding: 4px 8px !important;
+  height: 38px !important;
+  line-height: 30px !important;
+}
+
+.vditor-toolbar__item button {
+  color: var(--text-secondary) !important;
+  border-radius: var(--radius-sm) !important;
+}
+
+.vditor-toolbar__item button:hover {
+  background-color: var(--btn-bg-hover) !important;
+  color: var(--text-primary) !important;
+}
+
+.vditor-toolbar__divider {
+  border-left: 1px solid var(--border-color) !important;
+  height: 16px !important;
+  margin: 7px 4px !important;
+}
+
+.vditor-content {
+  background-color: var(--bg-primary) !important;
+}
+
+.vditor-reset {
+  color: var(--text-primary) !important;
+  background-color: transparent !important;
+  font-family: var(--md-font-family) !important;
+  font-size: var(--md-font-size) !important;
+  line-height: var(--md-line-height) !important;
+}
+
+.vditor-sv__preview {
+  border-left: 1px solid var(--border-color) !important;
+  background-color: var(--bg-primary) !important;
+}
+
+.vditor-counter {
+  color: var(--text-muted) !important;
+  font-size: 11px !important;
+  background: transparent !important;
+}

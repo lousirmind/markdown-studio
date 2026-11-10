@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 240" width="100%" height="240">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4f46e5" />
+      <stop offset="50%" stop-color="#7c3aed" />
+      <stop offset="100%" stop-color="#2563eb" />
+    </linearGradient>
+    <filter id="shadow" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.15" />
+    </filter>
+  </defs>
+  <rect width="800" height="240" rx="16" fill="url(#grad)" filter="url(#shadow)" />
+  <circle cx="120" cy="120" r="54" fill="#ffffff" fill-opacity="0.12" />
+  <path d="M 100 145 L 100 95 L 115 118 L 130 95 L 130 145 M 145 110 L 158 95 L 158 135 M 150 145 L 166 145" stroke="#ffffff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+  <text x="210" y="112" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="34" font-weight="700" fill="#ffffff" letter-spacing="0.5">Markdown Studio</text>
+  <text x="212" y="152" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="400" fill="#e0e7ff" letter-spacing="0.2">极速离线 · 优雅排版 · 智能大纲 · 沉浸阅读与编辑</text>
+</svg>

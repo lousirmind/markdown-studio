@@ -1,0 +1,3 @@
+# Python Dependencies for Markdown Studio
+pywebview>=5.0.0
+watchdog>=4.0.0

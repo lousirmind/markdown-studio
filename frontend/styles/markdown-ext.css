@@ -1,0 +1,296 @@
+/**
+ * markdown-ext.css - Markdown Reading Extensions, Callout Alerts, Image Zoom,
+ * Interactive Task Lists, Math / Code Styling, and Print Layout Optimization.
+ */
+
+/* ==========================================================================
+   Typography & Centering Preferences
+   ========================================================================== */
+#reader-container {
+  font-family: var(--md-font-family);
+  font-size: var(--md-font-size);
+  line-height: var(--md-line-height);
+  max-width: var(--md-max-width);
+  margin-inline: var(--md-margin-inline);
+}
+
+/* Base Headings & Elements */
+#reader-container h1,
+#reader-container h2,
+#reader-container h3,
+#reader-container h4,
+#reader-container h5,
+#reader-container h6 {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-top: 1.5em;
+  margin-bottom: 0.6em;
+  line-height: 1.25;
+}
+
+#reader-container h1 {
+  font-size: 2em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+#reader-container h2 {
+  font-size: 1.5em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+#reader-container h3 { font-size: 1.25em; }
+#reader-container h4 { font-size: 1.1em; }
+#reader-container h5 { font-size: 1em; }
+#reader-container h6 { font-size: 0.9em; color: var(--text-muted); }
+
+#reader-container p {
+  margin-top: 0;
+  margin-bottom: 1.1em;
+}
+
+#reader-container hr {
+  height: 1px;
+  background-color: var(--border-color);
+  border: none;
+  margin: 2em 0;
+}
+
+/* ==========================================================================
+   Callout / Alert Blocks (GitHub & Obsidian Style)
+   ========================================================================== */
+.md-callout {
+  margin: 1.2em 0 !important;
+  padding: 12px 16px !important;
+  border-left: 4px solid var(--callout-border, #007aff) !important;
+  border-radius: var(--radius-md) !important;
+  background-color: var(--callout-bg, rgba(0, 122, 255, 0.08)) !important;
+  color: var(--text-primary) !important;
+  box-shadow: var(--shadow-sm);
+}
+
+.md-callout > p:last-child {
+  margin-bottom: 0 !important;
+}
+
+.md-callout-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.95em;
+  margin-bottom: 8px;
+  color: var(--callout-text, var(--text-primary));
+}
+
+.md-callout-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+}
+
+.md-callout-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.md-callout-title {
+  text-transform: capitalize;
+}
+
+/* Callout Color Schemes */
+.md-callout-note {
+  --callout-border: #0969da;
+  --callout-bg: rgba(9, 105, 218, 0.08);
+  --callout-text: #0969da;
+}
+
+.md-callout-tip {
+  --callout-border: #1a7f37;
+  --callout-bg: rgba(26, 127, 55, 0.08);
+  --callout-text: #1a7f37;
+}
+
+.md-callout-important {
+  --callout-border: #8250df;
+  --callout-bg: rgba(130, 80, 223, 0.08);
+  --callout-text: #8250df;
+}
+
+.md-callout-warning {
+  --callout-border: #9a6700;
+  --callout-bg: rgba(154, 103, 0, 0.08);
+  --callout-text: #9a6700;
+}
+
+.md-callout-caution,
+.md-callout-danger {
+  --callout-border: #cf222e;
+  --callout-bg: rgba(207, 34, 46, 0.08);
+  --callout-text: #cf222e;
+}
+
+/* Dark Theme Overrides for Callouts */
+[data-theme="dark"] .md-callout-note {
+  --callout-border: #2f81f7;
+  --callout-bg: rgba(47, 129, 247, 0.12);
+  --callout-text: #2f81f7;
+}
+[data-theme="dark"] .md-callout-tip {
+  --callout-border: #3fb950;
+  --callout-bg: rgba(63, 185, 80, 0.12);
+  --callout-text: #3fb950;
+}
+[data-theme="dark"] .md-callout-important {
+  --callout-border: #a371f7;
+  --callout-bg: rgba(163, 113, 247, 0.12);
+  --callout-text: #a371f7;
+}
+[data-theme="dark"] .md-callout-warning {
+  --callout-border: #d29922;
+  --callout-bg: rgba(210, 153, 34, 0.12);
+  --callout-text: #d29922;
+}
+[data-theme="dark"] .md-callout-caution,
+[data-theme="dark"] .md-callout-danger {
+  --callout-border: #f85149;
+  --callout-bg: rgba(248, 81, 73, 0.12);
+  --callout-text: #f85149;
+}
+
+/* ==========================================================================
+   Images & Lightbox Hover Triggers
+   ========================================================================== */
+#reader-container img,
+.vditor-reset img {
+  max-width: 100%;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+#reader-container img.lightbox-trigger,
+.vditor-reset img.lightbox-trigger {
+  cursor: zoom-in;
+}
+
+#reader-container img.lightbox-trigger:hover,
+.vditor-reset img.lightbox-trigger:hover {
+  box-shadow: var(--shadow-md);
+  transform: scale(1.008);
+}
+
+/* ==========================================================================
+   Task Lists & Interactive Checkboxes
+   ========================================================================== */
+#reader-container ul li input[type="checkbox"],
+.vditor-reset ul li input[type="checkbox"] {
+  margin: 0 0.5em 0.2em -1.3em;
+  vertical-align: middle;
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent-color);
+  cursor: pointer;
+}
+
+/* ==========================================================================
+   Tables & Code Styling
+   ========================================================================== */
+#reader-container table,
+.vditor-reset table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1.2em 0;
+  overflow: auto;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--table-border);
+}
+
+#reader-container table th,
+#reader-container table td,
+.vditor-reset table th,
+.vditor-reset table td {
+  padding: 8px 12px;
+  border: 1px solid var(--table-border);
+}
+
+#reader-container table tr:nth-child(2n),
+.vditor-reset table tr:nth-child(2n) {
+  background-color: var(--table-zebra);
+}
+
+#reader-container pre,
+.vditor-reset pre {
+  border-radius: var(--radius-md) !important;
+  background-color: var(--code-bg) !important;
+  border: 1px solid var(--code-border) !important;
+}
+
+/* Math Container */
+.vditor-math {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 0;
+}
+
+/* ==========================================================================
+   Print Stylesheet (@media print)
+   ========================================================================== */
+@media print {
+  /* Hide all chrome and overlays */
+  #app-header,
+  #app-sidebar,
+  #settings-drawer,
+  #app-statusbar,
+  #toast-container,
+  #lightbox-modal,
+  .vditor-toolbar {
+    display: none !important;
+  }
+
+  /* Unconstrain body and containers */
+  html,
+  body,
+  #app-root,
+  #app-body,
+  #app-workspace,
+  #reader-scroll-wrap,
+  #vditor-container {
+    overflow: visible !important;
+    height: auto !important;
+    width: 100% !important;
+    position: static !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  #reader-container,
+  .vditor-reset {
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    font-size: 12pt !important;
+    line-height: 1.5 !important;
+    color: #000000 !important;
+  }
+
+  /* Page breaks */
+  h1, h2, h3, h4, h5, h6 {
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+
+  pre, blockquote, table, img, .md-callout {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Ensure links are readable */
+  a {
+    color: #000000 !important;
+    text-decoration: underline !important;
+  }
+}

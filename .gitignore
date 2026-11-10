@@ -1,0 +1,30 @@
+# ---- macOS ----
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+# 仅忽略项目根目录的打包产物（勿误伤 frontend/vendor/vditor/dist 离线依赖）
+/build/
+/dist/
+/*.spec
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- 运行期临时产物 ----
+*.log
+*.tmp
+*.bak
+~$*
+
+# ---- 编辑器 ----
+.vscode/
+.idea/

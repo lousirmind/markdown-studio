@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Markdown Studio</title>
+
+  <script>
+    window.__test_js_errors = [];
+    window.__console_logs = [];
+    ['log', 'info', 'warn', 'error'].forEach(function(level) {
+      var orig = console[level];
+      console[level] = function() {
+        var args = Array.prototype.slice.call(arguments).map(function(a) {
+          try {
+            return typeof a === 'object' ? JSON.stringify(a) : String(a);
+          } catch(e) {
+            return String(a);
+          }
+        }).join(' ');
+        window.__console_logs.push('[' + level + '] ' + args);
+        if (orig) orig.apply(console, arguments);
+      };
+    });
+    window.addEventListener('error', function(e) {
+      window.__test_js_errors.push(e.message || String(e));
+    });
+  </script>
+
+  <!-- Vendor Offline Styles -->
+  <link rel="stylesheet" href="./vendor/vditor/dist/index.css" />
+
+  <!-- App Global Styles -->
+  <link rel="stylesheet" href="./styles/base.css" />
+  <link rel="stylesheet" href="./styles/themes.css" />
+  <link rel="stylesheet" href="./styles/components.css" />
+  <link rel="stylesheet" href="./styles/markdown-ext.css" />
+
+  <!-- User Injected Custom CSS -->
+  <style id="user-custom-css"></style>
+</head>
+<body>
+  <!-- Root Container with Data Attributes for Dynamic Theming -->
+  <div id="app-root" data-theme="light" data-code-theme="github" data-mode="ir">
+
+    <!-- Top Toolbar Header -->
+    <header id="app-header">
+      <!-- Left Action Buttons -->
+      <div class="header-left">
+        <div class="btn-group">
+          <button id="btn-toggle-sidebar" class="btn-icon" title="切换侧边栏 (Cmd/Ctrl+B)">
+            <svg viewBox="0 0 16 16" fill="currentColor">
+              <path d="M0 2.5A1.5 1.5 0 0 1 1.5 1h13A1.5 1.5 0 0 1 16 2.5v11a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 0 13.5v-11ZM5 2H1.5a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5H5V2Zm1 12h8.5a.5.5 0 0 0 .5-.5v-11a.5.5 0 0 0-.5-.5H6v12Z"/>
+            </svg>
+          </button>
+          <button id="btn-open-file" class="btn-icon" title="打开文件 (Cmd/Ctrl+O)">
+            <svg viewBox="0 0 16 16" fill="currentColor">
+              <path d="M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5L14 4.5Zm-3 0A1.5 1.5 0 0 1 9.5 3V1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4.5h-2Z"/>
+            </svg>
+          </button>
+          <button id="btn-open-folder" class="btn-icon" title="打开工作区文件夹">
+            <svg viewBox="0 0 16 16" fill="currentColor">
+              <path d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75Z"/>
+            </svg>
+          </button>
+          <button id="btn-save-file" class="btn-icon" title="保存文件 (Cmd/Ctrl+S)">
+            <svg viewBox="0 0 16 16" fill="currentColor">
+              <path d="M2 1a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4.414a1 1 0 0 0-.293-.707l-2.414-2.414A1 1 0 0 0 11.586 1H2Zm3 1h6v3H5V2Zm-2 5h10v7H3V7Z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Center Multi-tab Bar -->
+      <div id="tabs-bar" class="tabs-bar">
+        <!-- Tabs rendered dynamically by tab-manager.js -->
+      </div>
+
+      <!-- Right Mode Switcher & Tools -->
+      <div class="header-right">
+        <!-- Four Mode Segmented Switcher -->
+        <div id="mode-switcher" class="mode-switcher">
+          <button class="mode-btn" data-mode="reader" title="纯阅读模式 (高保真渲染，无干扰)">阅读</button>
+          <button class="mode-btn active" data-mode="ir" title="即时渲染模式 (所见即所写)">即时</button>
+          <button class="mode-btn" data-mode="sv" title="分屏对比模式 (源码与预览左右分屏)">分屏</button>
+          <button class="mode-btn" data-mode="wysiwyg" title="富文本模式 (Typora 级体验)">富文本</button>
+        </div>
+
+        <div class="btn-group">
+          <button id="btn-export-html" class="btn-icon" title="导出独立 HTML 文件">
+            <svg viewBox="0 0 16 16" fill="currentColor">
+              <path d="M4.708 5.704a.75.75 0 0 0-1.06-1.06L.998 7.294a.75.75 0 0 0 0 1.06l2.65 2.65a.75.75 0 0 0 1.06-1.06L2.59 8.25l2.118-2.546Zm6.584 0 2.118 2.546-2.118 2.546a.75.75 0 0 0 1.06 1.06l2.65-2.65a.75.75 0 0 0 0-1.06l-2.65-2.65a.75.75 0 0 0-1.06 1.06Zm-4.93 6.94 2.5-9.5a.75.75 0 1 0-1.448-.38l-2.5 9.5a.75.75 0 0 0 1.448.38Z"/>
+            </svg>
+          </button>
+          <button id="btn-export-pdf" class="btn-icon" title="导出 / 打印 PDF 文档">
+            <svg viewBox="0 0 16 16" fill="currentColor">
+              <path d="M2.5 5A1.5 1.5 0 0 0 1 6.5v4A1.5 1.5 0 0 0 2.5 12h1v1.5a1.5 1.5 0 0 0 1.5 1.5h6a1.5 1.5 0 0 0 1.5-1.5V12h1a1.5 1.5 0 0 0 1.5-1.5v-4A1.5 1.5 0 0 0 13.5 5h-11Zm2.5-3A1.5 1.5 0 0 1 6.5.5h3A1.5 1.5 0 0 1 11 2v2H5V2Zm6 10H5v2h6v-2Z"/>
+            </svg>
+          </button>
+          <button id="btn-toggle-settings" class="btn-icon" title="外观与排版设置">
+            <svg viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 4.75a3.25 3.25 0 1 0 0 6.5 3.25 3.25 0 0 0 0-6.5ZM9.75 8a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0Z"/>
+              <path d="M6.924.965c.27-.85 1.472-.85 1.742 0a1.082 1.082 0 0 0 1.58.654l.026-.013c.805-.41 1.654.44 1.244 1.244l-.013.026a1.082 1.082 0 0 0 .654 1.58c.85.27.85 1.472 0 1.742a1.082 1.082 0 0 0-.654 1.58l.013.026c.41.805-.44 1.654-1.244 1.244l-.026-.013a1.082 1.082 0 0 0-1.58.654c-.27.85-1.472.85-1.742 0a1.082 1.082 0 0 0-1.58-.654l-.026.013c-.805.41-1.654-.44-1.244-1.244l.013-.026a1.082 1.082 0 0 0-.654-1.58c-.85-.27-.85-1.472 0-1.742a1.082 1.082 0 0 0 .654-1.58l-.013-.026c-.41-.805.44-1.654 1.244-1.244l.026.013a1.082 1.082 0 0 0 1.58-.654Z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Workspace Split Area -->
+    <main id="app-body">
+      <!-- Left Dual-mode Sidebar -->
+      <aside id="app-sidebar" class="app-sidebar">
+        <!-- Sidebar Navigation Tabs -->
+        <div class="sidebar-tabs">
+          <button id="sidebar-tab-toc" class="sidebar-tab-btn active" title="查看文章目录大纲">大纲</button>
+          <button id="sidebar-tab-files" class="sidebar-tab-btn" title="查看本地工作区文件树">文件</button>
+        </div>
+
+        <!-- TOC Outline Panel -->
+        <div id="panel-toc" class="sidebar-panel active">
+          <div class="panel-search-bar">
+            <input type="text" id="toc-search-input" placeholder="搜索目录大纲..." />
+          </div>
+          <div id="toc-tree-container" class="tree-container">
+            <!-- TOC outline items rendered dynamically by toc-outline.js -->
+          </div>
+        </div>
+
+        <!-- Local Files Panel -->
+        <div id="panel-files" class="sidebar-panel">
+          <div id="files-toolbar" class="files-toolbar">
+            <input type="text" id="files-search-input" placeholder="过滤文件..." />
+            <div class="files-toolbar-actions">
+              <select id="files-sort-select" title="选择排序字段">
+                <option value="name">名称</option>
+                <option value="mtime">修改时间</option>
+                <option value="size">文件大小</option>
+              </select>
+              <button id="btn-sort-order" class="btn-icon" title="升序 / 降序切换" data-asc="true">↑</button>
+              <button id="btn-toggle-hidden" class="btn-icon" title="显示 / 隐藏点开头文件">👁</button>
+              <button id="btn-new-file" class="btn-icon" title="新建 Markdown 文件">+</button>
+              <button id="btn-new-folder" class="btn-icon" title="新建文件夹">📁</button>
+              <button id="btn-refresh-files" class="btn-icon" title="刷新文件列表">🔄</button>
+            </div>
+          </div>
+          <div id="file-tree-container" class="tree-container">
+            <!-- File tree nodes rendered dynamically by file-tree.js -->
+          </div>
+        </div>
+      </aside>
+
+      <!-- Central Editor & Reading Area -->
+      <section id="app-workspace" class="app-workspace">
+        <!-- Vditor Editor Mount Container (ir, sv, wysiwyg modes) -->
+        <div id="vditor-container" class="vditor-container"></div>
+
+        <!-- Pure High-Fidelity Reading Scroll Wrapper -->
+        <div id="reader-scroll-wrap" class="reader-scroll-wrap hidden">
+          <div id="reader-container" class="reader-container vditor-reset"></div>
+        </div>
+      </section>
+
+      <!-- Right Appearance & Settings Drawer -->
+      <aside id="settings-drawer" class="settings-drawer hidden">
+        <div class="settings-header">
+          <h3>外观与排版设置</h3>
+          <button id="btn-close-settings" class="btn-icon" title="关闭设置抽屉">✕</button>
+        </div>
+        <div class="settings-body">
+          <div class="settings-group">
+            <label for="pref-theme">应用主题</label>
+            <select id="pref-theme">
+              <option value="auto">跟随系统 (Auto)</option>
+              <option value="light">浅色明亮 (Light)</option>
+              <option value="dark">深色黑夜 (Dark)</option>
+            </select>
+          </div>
+
+          <div class="settings-group">
+            <label for="pref-code-theme">代码高亮风格</label>
+            <select id="pref-code-theme">
+              <option value="github">GitHub</option>
+              <option value="monokai">Monokai</option>
+              <option value="dracula">Dracula</option>
+              <option value="one-dark">One Dark</option>
+              <option value="vs">Visual Studio</option>
+            </select>
+          </div>
+
+          <div class="settings-group">
+            <label for="pref-font-family">阅读正文字体</label>
+            <select id="pref-font-family">
+              <option value="sans">无衬线 (苹方 / San Francisco)</option>
+              <option value="serif">衬线体 (宋体 / Georgia)</option>
+              <option value="mono">等宽体 (SF Mono / Consolas)</option>
+            </select>
+          </div>
+
+          <div class="settings-group">
+            <label>
+              <span>正文字号</span>
+              <span id="pref-font-size-val" class="range-val">16px</span>
+            </label>
+            <div class="range-wrap">
+              <input type="range" id="pref-font-size" min="13" max="24" value="16" />
+            </div>
+          </div>
+
+          <div class="settings-group">
+            <label for="pref-max-width">文档最大阅读宽度</label>
+            <select id="pref-max-width">
+              <option value="800px">800px (适中精简)</option>
+              <option value="1000px" selected>1000px (标准宽屏)</option>
+              <option value="1200px">1200px (开阔视野)</option>
+              <option value="1600px">1600px (超宽布局)</option>
+              <option value="100%">100% (铺满窗口)</option>
+            </select>
+          </div>
+
+          <div class="settings-row">
+            <span>居中排版对齐</span>
+            <input type="checkbox" id="pref-centered" checked />
+          </div>
+
+          <div class="settings-row">
+            <span>编辑内容自动保存</span>
+            <input type="checkbox" id="pref-auto-save" checked />
+          </div>
+
+          <div class="settings-row">
+            <span>外部修改自动刷新</span>
+            <input type="checkbox" id="pref-auto-refresh" checked />
+          </div>
+
+          <div class="settings-group">
+            <label for="pref-custom-css">自定义用户样式 (CSS)</label>
+            <textarea id="pref-custom-css" placeholder="/* 在此注入个性化 CSS 样式规则 */"></textarea>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <!-- Bottom Status Bar -->
+    <footer id="app-statusbar">
+      <div class="statusbar-left">
+        <span id="status-file-path" class="status-item">未打开文件</span>
+        <span id="status-save-state" class="status-item saved">已就绪</span>
+      </div>
+      <div class="statusbar-right">
+        <span id="status-word-count" class="status-item">0 词</span>
+        <span id="status-char-count" class="status-item">0 字</span>
+        <span id="status-line-count" class="status-item">0 行</span>
+        <span id="status-read-time" class="status-item">约 0 分钟</span>
+        <span id="status-mode-label" class="status-item">即时渲染</span>
+      </div>
+    </footer>
+
+    <!-- Fullscreen Image Lightbox Modal -->
+    <div id="lightbox-modal" class="lightbox-modal hidden">
+      <div class="lightbox-toolbar">
+        <button id="lightbox-zoom-out" title="缩小 (-)">-</button>
+        <button id="lightbox-reset" title="恢复原比例 (1:1)">100%</button>
+        <button id="lightbox-zoom-in" title="放大 (+)">+</button>
+        <button id="lightbox-close" title="关闭 (Esc)">✕</button>
+      </div>
+
+      <button id="lightbox-prev" class="lightbox-nav-btn" title="上一张 (←)">‹</button>
+      <button id="lightbox-next" class="lightbox-nav-btn" title="下一张 (→)">›</button>
+
+      <div class="lightbox-stage">
+        <img id="lightbox-img" src="" alt="" />
+      </div>
+
+      <div id="lightbox-caption" class="lightbox-caption"></div>
+      <div id="lightbox-thumbs" class="lightbox-thumbs hidden"></div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="toast-container"></div>
+  </div>
+
+  <!-- Scripts Loaded in Strict Ordered Sequence -->
+  <script src="./vendor/vditor/dist/index.min.js"></script>
+  <script src="./js/core/event-bus.js"></script>
+  <script src="./js/core/store.js"></script>
+  <script src="./js/core/bridge-client.js"></script>
+  <script src="./js/modules/md-enhancer.js"></script>
+  <script src="./js/modules/editor-engine.js"></script>
+  <script src="./js/modules/toc-outline.js"></script>
+  <script src="./js/modules/file-tree.js"></script>
+  <script src="./js/modules/tab-manager.js"></script>
+  <script src="./js/modules/appearance.js"></script>
+  <script src="./js/modules/lightbox.js"></script>
+  <script src="./js/modules/exporter-status.js"></script>
+  <script src="./js/app.js"></script>
+</body>
+</html>
