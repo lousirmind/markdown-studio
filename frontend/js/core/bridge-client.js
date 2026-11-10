@@ -235,6 +235,30 @@
       export_html_dialog: async (defaultName) => {
         return { ok: true, data: { path: `/sample/${defaultName || 'exported.html'}` } };
       },
+      save_session: async (state) => {
+        try {
+          localStorage.setItem('markdown_studio_session', JSON.stringify(state || {}));
+        } catch (e) {
+          // localStorage may be unavailable (private mode): keep mock in memory.
+        }
+        return { ok: true, data: { tabs: (state && state.tabs ? state.tabs.length : 0) } };
+      },
+      load_session: async () => {
+        try {
+          const raw = localStorage.getItem('markdown_studio_session');
+          return { ok: true, data: raw ? JSON.parse(raw) : null };
+        } catch (e) {
+          return { ok: true, data: null };
+        }
+      },
+      clear_session: async () => {
+        try {
+          localStorage.removeItem('markdown_studio_session');
+        } catch (e) {
+          // ignore
+        }
+        return { ok: true, data: { cleared: true } };
+      },
     };
   }
 
@@ -473,6 +497,31 @@
      */
     async getPdfExportResult() {
       return callBridge('getPdfExportResult');
+    },
+
+    /**
+     * Persist a session snapshot (open tabs, workspace, editor mode).
+     * @param {object} state { version, saved_at, workspace_dir, active_path, editor_mode, tabs }
+     * @returns {Promise<{ success: boolean, tabs?: number, bytes?: number, truncated?: boolean, error?: string }>}
+     */
+    async saveSession(state) {
+      return callBridge('saveSession', state);
+    },
+
+    /**
+     * Load the last persisted session snapshot.
+     * @returns {Promise<{ success: boolean, data: object|null, error?: string }>}
+     */
+    async loadSession() {
+      return callBridge('loadSession');
+    },
+
+    /**
+     * Delete the persisted session snapshot.
+     * @returns {Promise<{ success: boolean, cleared?: boolean, error?: string }>}
+     */
+    async clearSession() {
+      return callBridge('clearSession');
     },
   };
 

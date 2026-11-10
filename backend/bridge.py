@@ -17,6 +17,7 @@ from . import config_service
 from . import dragdrop_service
 from . import file_service
 from . import print_service
+from . import session_service
 
 
 class DesktopBridge:
@@ -42,6 +43,13 @@ class DesktopBridge:
         self._drop_handler_registered = False
         self._drop_register_attempts = 0
 
+        # Session persistence state. The last state pushed from JS is cached so
+        # the window-closing hook still has something to write when the live
+        # synchronous JS read is unavailable.
+        self._closing_hook_window = None
+        self._closing_save_started = False
+        self._last_session_state = None
+
     def set_window(self, window):
         """Bind the active pywebview window instance.
 
@@ -54,6 +62,9 @@ class DesktopBridge:
         self._drop_handler_registered = False
         self._drop_register_attempts = 0
 
+        # Session snapshot must be written while the window is still alive.
+        self._install_closing_hook(window)
+
         # The window may already be loaded (e.g. a bridge attached late):
         # loaded is a one-shot event, so register immediately in that case.
         try:
@@ -64,6 +75,160 @@ class DesktopBridge:
             pass
 
         self._install_drop_loaded_hook()
+
+    # -------------------------------------------------------------------------
+    # Session persistence
+    # -------------------------------------------------------------------------
+    SESSION_STATE_JS = (
+        "(() => { try {"
+        " if (typeof window.__mdStudioSessionStateJSON !== 'function') return null;"
+        " return window.__mdStudioSessionStateJSON();"
+        " } catch (e) { return null; } })()"
+    )
+
+    def _install_closing_hook(self, window) -> None:
+        """Persist the session synchronously right before the window closes.
+
+        pywebview runs the closing event on the Cocoa main thread. Calling
+        window.evaluate_js() from there deadlocks (it posts to the main run
+        loop and then blocks on a semaphore), so the live state is read through
+        a run-loop-pumped WKWebView evaluation (see _read_frontend_session_json).
+        Failures never cancel the close.
+        """
+        if window is None:
+            return
+        if self._closing_hook_window is window:
+            return
+        try:
+            window.events.closing += self._on_window_closing
+            self._closing_hook_window = window
+            print("[session] closing hook installed")
+        except Exception as e:
+            print(f"[session] failed to install closing hook: {e}")
+
+    def _on_window_closing(self, *args) -> None:
+        """Closing event handler: save once, never raise, never cancel close."""
+        if self._closing_save_started:
+            return
+        self._closing_save_started = True
+        try:
+            state = None
+            raw = self._read_frontend_session_json()
+            if isinstance(raw, str) and raw:
+                try:
+                    parsed = json.loads(raw)
+                except Exception:
+                    parsed = None
+                if isinstance(parsed, dict):
+                    state = parsed
+            if state is None and isinstance(self._last_session_state, dict):
+                state = self._last_session_state
+            if isinstance(state, dict):
+                result = session_service.save_session(state)
+                print(f"[session] closing save: {result.get('data') or result.get('error')}")
+        except Exception as e:
+            print(f"[session] closing save failed (ignored): {e}")
+        finally:
+            # Allow a subsequent close attempt (e.g. a cancelled quit) to save
+            # again; the window is gone after a successful close anyway.
+            self._closing_save_started = False
+
+    def _read_frontend_session_json(self):
+        """Read the live frontend session JSON synchronously.
+
+        On the Cocoa main thread the regular evaluate_js() path would deadlock,
+        so the WKWebView is driven directly while a nested run loop processes
+        the completion callback (bounded by a short timeout). Off the main
+        thread the ordinary bridge call is safe and preferred.
+        """
+        window = self.window
+        if window is None:
+            return None
+
+        script = self.SESSION_STATE_JS
+        if sys.platform == "darwin" and threading.current_thread() is threading.main_thread():
+            return self._evaluate_js_on_main_thread(window, script, timeout=1.5)
+
+        try:
+            return window.evaluate_js(script)
+        except Exception as e:
+            print(f"[session] live state read failed: {e}")
+            return None
+
+    @staticmethod
+    def _evaluate_js_on_main_thread(window, script: str, timeout: float = 1.5):
+        """Synchronously evaluate JS on the Cocoa main thread.
+
+        The completion handler is delivered by the main run loop, so a bounded
+        nested run loop is pumped until it fires. Returns None on any failure.
+        """
+        try:
+            import Foundation
+            from AppKit import NSDate, NSRunLoop
+            from webview.platforms.cocoa import BrowserView
+        except Exception:
+            return None
+
+        try:
+            instance = BrowserView.instances.get(window.uid)
+        except Exception:
+            instance = None
+        webview_view = getattr(instance, "webview", None)
+        if webview_view is None:
+            return None
+
+        done = [False]
+        result = [None]
+
+        def _handler(value, error):
+            result[0] = value
+            done[0] = True
+
+        try:
+            webview_view.evaluateJavaScript_completionHandler_(script, _handler)
+        except Exception as e:
+            print(f"[session] main-thread JS evaluation failed: {e}")
+            return None
+
+        deadline = time.time() + max(0.1, timeout)
+        try:
+            while not done[0] and time.time() < deadline:
+                NSRunLoop.currentRunLoop().runMode_beforeDate_(
+                    Foundation.NSDefaultRunLoopMode,
+                    NSDate.dateWithTimeIntervalSinceNow_(0.02),
+                )
+        except Exception:
+            return None
+
+        return result[0] if done[0] else None
+
+    def save_session(self, state: Any) -> Dict[str, Any]:
+        """Persist a session snapshot sent by the frontend."""
+        if self._closing_save_started:
+            # A debounced frontend save racing the close must not overwrite the
+            # authoritative synchronous snapshot written by the closing hook.
+            return {"ok": True, "data": {"skipped": True, "reason": "window-closing"}}
+        if isinstance(state, str):
+            try:
+                state = json.loads(state)
+            except Exception as e:
+                return {"ok": False, "error": f"Invalid session JSON: {e}"}
+        if not isinstance(state, dict):
+            return {"ok": False, "error": "Session state must be an object"}
+
+        # Cache the latest state so the closing hook can fall back to it when a
+        # live JS read is unavailable.
+        self._last_session_state = state
+        return session_service.save_session(state)
+
+    def load_session(self) -> Dict[str, Any]:
+        """Return the last persisted session snapshot (or data=None)."""
+        return session_service.load_session()
+
+    def clear_session(self) -> Dict[str, Any]:
+        """Delete the persisted session snapshot."""
+        self._last_session_state = None
+        return session_service.clear_session()
 
     # -------------------------------------------------------------------------
     # Native drag & drop (Finder -> window)
@@ -307,6 +472,9 @@ class DesktopBridge:
                 "target_file": target_file,
                 "workspace_dir": workspace_dir,
                 "project_root": self.project_root,
+                # True when launched with an explicit file argument: the
+                # frontend then opens only that file instead of restoring.
+                "launched_with_file": bool(self.initial_file),
             },
         }
 

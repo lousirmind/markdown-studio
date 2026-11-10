@@ -290,6 +290,200 @@
     }
   }
 
+  const VALID_EDITOR_MODES = ['reader', 'ir', 'sv', 'wysiwyg'];
+  let restoreInProgress = false;
+
+  function basenameOf(filePath) {
+    if (!filePath) return '未命名.md';
+    const parts = String(filePath).split(/[/\\]/);
+    return parts[parts.length - 1] || '未命名.md';
+  }
+
+  function toastSession(message, type) {
+    if (window.AppBus) {
+      window.AppBus.emit('notify:toast', { message, type: type || 'info' });
+    }
+  }
+
+  /**
+   * Restore the previous session: re-open every remembered tab in order,
+   * re-apply dirty buffers without touching disk, skip files that no longer
+   * exist (recovering their unsaved content as a scratch tab), then restore
+   * the active tab, workspace and editor mode.
+   *
+   * Missing / recovered tabs are reported in a single aggregated toast.
+   * @param {object} session Session snapshot from SessionManager/BridgeClient
+   */
+  async function restoreSession(session) {
+    if (restoreInProgress) return;
+    restoreInProgress = true;
+
+    const state = session && typeof session === 'object' ? session : {};
+    const entries = Array.isArray(state.tabs) ? state.tabs : [];
+    const missing = [];
+    const recovered = [];
+    const restored = [];
+
+    try {
+      if (!window.AppStore || entries.length === 0) {
+        // Nothing to restore; the finally block still reports completion.
+        return;
+      }
+
+      // Which entry should end up active after the restore?
+      let activeIndex = -1;
+      if (state.active_path) {
+        activeIndex = entries.findIndex((e) => e && e.path === state.active_path);
+      }
+      if (activeIndex === -1 && state.active_name) {
+        activeIndex = entries.findIndex((e) => e && !e.path && e.name === state.active_name);
+      }
+      if (activeIndex === -1) {
+        activeIndex = entries.findIndex((e) => e && e.path);
+      }
+
+      for (let i = 0; i < entries.length; i++) {
+        const entry = entries[i];
+        if (!entry || typeof entry !== 'object') continue;
+
+        const entryPath = typeof entry.path === 'string' && entry.path ? entry.path : null;
+        const entryName = typeof entry.name === 'string' && entry.name
+          ? entry.name
+          : basenameOf(entryPath);
+        const hasDirtyContent = !!(entry.dirty && typeof entry.content === 'string');
+        const scrollTop = typeof entry.scrollTop === 'number' ? entry.scrollTop : 0;
+
+        let tab = null;
+
+        if (!entryPath) {
+          // Scratch tab (or a previously recovered draft): the only copy of
+          // the content lives in the session snapshot.
+          const content = typeof entry.content === 'string' ? entry.content : '';
+          tab = window.AppStore.addTab({
+            path: null,
+            name: entryName,
+            content,
+            savedContent: typeof entry.savedContent === 'string' ? entry.savedContent : content,
+            scrollTop,
+            dirty: !!entry.dirty,
+          });
+        } else {
+          let readRes = null;
+          try {
+            readRes = await window.BridgeClient.readFile(entryPath);
+          } catch (err) {
+            readRes = null;
+          }
+          const isOk = readRes && (readRes.ok || readRes.success);
+
+          if (isOk) {
+            const fileData = readRes.data || readRes;
+            const diskContent = typeof fileData.content === 'string' ? fileData.content : '';
+            const useDirtyBuffer = hasDirtyContent && entry.content !== diskContent;
+
+            tab = window.AppStore.addTab({
+              path: fileData.path || entryPath,
+              name: fileData.name || entryName,
+              content: useDirtyBuffer ? entry.content : diskContent,
+              savedContent: diskContent,
+              mtime: fileData.mtime || Date.now() / 1000,
+              scrollTop,
+              dirty: useDirtyBuffer,
+            });
+
+            // Duplicate path in the snapshot: addTab returns the existing tab,
+            // so re-apply the dirty buffer explicitly.
+            if (tab && useDirtyBuffer) {
+              tab.content = entry.content;
+              tab.savedContent = diskContent;
+              tab.dirty = true;
+            }
+          } else if (hasDirtyContent) {
+            // The file is gone but the buffer had unsaved edits: keep the data
+            // as a path-less "recovered" dirty tab instead of dropping it.
+            const recoveredName = /已恢复/.test(entryName)
+              ? entryName
+              : `${entryName}（已恢复）`;
+            tab = window.AppStore.addTab({
+              path: null,
+              name: recoveredName,
+              content: entry.content,
+              savedContent: '',
+              scrollTop,
+              dirty: true,
+            });
+            recovered.push(entryName);
+          } else {
+            missing.push(entryName);
+            continue;
+          }
+        }
+
+        if (tab) {
+          restored.push({ index: i, tab });
+        }
+      }
+
+      // Activate the tab that was active when the session was saved.
+      let targetTab = null;
+      if (activeIndex >= 0) {
+        const match = restored.find((item) => item.index === activeIndex);
+        if (match) targetTab = match.tab;
+      }
+      if (!targetTab && restored.length > 0) {
+        targetTab = restored[restored.length - 1].tab;
+      }
+
+      if (targetTab) {
+        window.AppStore.setActiveTab(targetTab.id);
+      }
+      renderTabsBar({ scrollActive: true });
+      if (targetTab && window.AppBus) {
+        window.AppBus.emit('tab:switched', { tab: { ...targetTab } });
+      }
+
+      // Restore workspace directory (FileTree owns AppStore.workspaceDir).
+      if (typeof state.workspace_dir === 'string' && state.workspace_dir && window.AppBus) {
+        window.AppBus.emit('folder:open-request', { path: state.workspace_dir });
+      }
+
+      // Restore editor mode (reader / ir / sv / wysiwyg).
+      if (VALID_EDITOR_MODES.indexOf(state.editor_mode) !== -1 && window.AppBus) {
+        window.AppBus.emit('editor:mode-change-request', { mode: state.editor_mode });
+      }
+
+      if (targetTab && targetTab.scrollTop > 0 && window.AppBus) {
+        const scrollTop = targetTab.scrollTop;
+        setTimeout(() => {
+          window.AppBus.emit('editor:scroll-to', { scrollTop });
+        }, 250);
+      }
+
+      if (missing.length > 0 || recovered.length > 0) {
+        const parts = [];
+        if (missing.length > 0) {
+          parts.push(`已跳过 ${missing.length} 个已不存在或无法读取的文件`);
+        }
+        if (recovered.length > 0) {
+          parts.push(`${recovered.length} 个未保存标签已恢复为「已恢复」草稿`);
+        }
+        toastSession(parts.join('；'), missing.length > 0 ? 'warning' : 'info');
+      }
+    } catch (err) {
+      console.error('[TabManager] Session restore failed:', err);
+      toastSession('恢复上次会话失败，已打开可用标签', 'warning');
+    } finally {
+      restoreInProgress = false;
+      if (window.AppBus) {
+        window.AppBus.emit('session:restore-complete', {
+          restored: restored.length,
+          missing,
+          recovered,
+        });
+      }
+    }
+  }
+
   /**
    * Handle Open File native dialog button
    */
@@ -701,6 +895,12 @@
         // Save file request
         window.AppBus.on('file:save-request', () => {
           saveActiveTab();
+        });
+
+        // Restore the previous session (dispatched by app.js at bootstrap).
+        window.AppBus.on('session:restore', (payload) => {
+          const session = payload && payload.session ? payload.session : payload;
+          restoreSession(session);
         });
 
         // Editor content changed

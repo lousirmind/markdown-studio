@@ -38,6 +38,7 @@
         { name: 'MdEnhancer', module: window.MdEnhancer },
         { name: 'TocOutline', module: window.TocOutline },
         { name: 'FileTree', module: window.FileTree },
+        { name: 'SessionManager', module: window.SessionManager },
         { name: 'TabManager', module: window.TabManager },
         { name: 'Lightbox', module: window.Lightbox },
         { name: 'ExporterStatus', module: window.ExporterStatus },
@@ -57,15 +58,71 @@
         }
       }
 
-      // 4. Trigger initial folder and document requests
-      if (initialState && window.AppBus) {
-        // Open workspace directory
+      // 4. Decide between restoring the last session and the default flow.
+      //    An explicit CLI file argument always wins: only that file is opened.
+      const launchedWithFile = !!(initialState && initialState.launched_with_file);
+      let restoredSession = null;
+
+      if (
+        !launchedWithFile &&
+        window.BridgeClient &&
+        typeof window.BridgeClient.loadSession === 'function'
+      ) {
+        try {
+          const sessionRes = await window.BridgeClient.loadSession();
+          const isOk = sessionRes && (sessionRes.ok || sessionRes.success);
+          const sessionData = sessionRes
+            ? sessionRes.data !== undefined
+              ? sessionRes.data
+              : sessionRes
+            : null;
+          if (
+            isOk &&
+            sessionData &&
+            Array.isArray(sessionData.tabs) &&
+            sessionData.tabs.length > 0
+          ) {
+            restoredSession = sessionData;
+          }
+        } catch (err) {
+          console.warn('[App] Session load failed:', err);
+        }
+      }
+
+      if (restoredSession && window.AppBus) {
+        console.info(
+          `[App] Restoring last session (${restoredSession.tabs.length} tabs, mode=${restoredSession.editor_mode || 'ir'})...`
+        );
+
+        // Pause session writes until TabManager finished restoring.
+        if (window.SessionManager && typeof window.SessionManager.beginRestore === 'function') {
+          window.SessionManager.beginRestore(restoredSession);
+        }
+
+        // Fallback: if every remembered tab was skipped, show the welcome
+        // document instead of leaving an empty editor behind.
+        const onRestoreComplete = (payload) => {
+          if (window.AppBus && typeof window.AppBus.off === 'function') {
+            window.AppBus.off('session:restore-complete', onRestoreComplete);
+          }
+          const restoredCount =
+            payload && typeof payload.restored === 'number' ? payload.restored : 0;
+          if (restoredCount === 0) {
+            const welcome = initialState && initialState.welcome_path;
+            if (welcome) {
+              window.AppBus.emit('file:open-request', { path: welcome });
+            }
+          }
+        };
+        window.AppBus.on('session:restore-complete', onRestoreComplete);
+        window.AppBus.emit('session:restore', { session: restoredSession });
+      } else if (initialState && window.AppBus) {
+        // 5. Default startup: open workspace directory + target/welcome doc.
         const workspaceDir = initialState.workspace_dir;
         if (workspaceDir) {
           window.AppBus.emit('folder:open-request', { path: workspaceDir });
         }
 
-        // Open target document or welcome document
         const targetDoc = initialState.target_file || initialState.welcome_path;
         if (targetDoc) {
           window.AppBus.emit('file:open-request', { path: targetDoc });
