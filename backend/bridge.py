@@ -93,6 +93,14 @@ class DesktopBridge:
     def check_files_mtime(self, paths: List[str]) -> Dict[str, Any]:
         return file_service.check_files_mtime(paths)
 
+    def read_file_data_url(self, path: str) -> Dict[str, Any]:
+        """
+        Read a local image file (png/jpg/jpeg/gif/svg/webp/bmp) as a data URL.
+        Used by the frontend to display images located outside the static
+        pywebview HTTP root without weakening the web security model.
+        """
+        return file_service.read_image_data_url(path)
+
     # -------------------------------------------------------------------------
     # Asset & Export Operations
     # -------------------------------------------------------------------------

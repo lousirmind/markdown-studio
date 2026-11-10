@@ -5,6 +5,7 @@ and filesystem manipulations with atomic writes and encoding fallbacks.
 This module is fully decoupled and does not import any other project service.
 """
 
+import base64
 import os
 import tempfile
 from typing import Any, Dict, List, Optional
@@ -19,6 +20,20 @@ EXCLUDED_DIRS = {
     "vendor",
     ".pytest_cache",
 }
+
+# Supported local image types for bridge data-URL embedding.
+IMAGE_MIME_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".svg": "image/svg+xml",
+    ".webp": "image/webp",
+    ".bmp": "image/bmp",
+}
+
+# Hard cap for embedded images to avoid blocking the JS bridge (20 MB).
+MAX_IMAGE_BYTES = 20 * 1024 * 1024
 
 
 def read_file(path: str) -> Dict[str, Any]:
@@ -63,6 +78,72 @@ def read_file(path: str) -> Dict[str, Any]:
         }
     except Exception as e:
         return {"ok": False, "error": f"Failed to read file '{path}': {str(e)}"}
+
+
+def read_image_data_url(path: str) -> Dict[str, Any]:
+    """
+    Read a local image file and return it as a base64 data URL.
+
+    Restricted to regular files with a supported image extension and a size
+    below MAX_IMAGE_BYTES, so the frontend can safely embed local images that
+    are outside the pywebview static HTTP root.
+
+    Returns:
+        {"ok": True, "data": {"path": abs_path, "name": basename, "mime": str,
+                              "size": int, "data_url": "data:<mime>;base64,..."}}
+        or {"ok": False, "error": str}
+    """
+    try:
+        if not isinstance(path, str) or not path.strip():
+            return {"ok": False, "error": "Image path cannot be empty"}
+
+        abs_path = os.path.abspath(os.path.expanduser(path.strip()))
+        if not os.path.exists(abs_path):
+            return {"ok": False, "error": f"Image not found: {path}"}
+        if not os.path.isfile(abs_path):
+            return {"ok": False, "error": f"Path is not a regular file: {path}"}
+
+        ext = os.path.splitext(abs_path)[1].lower()
+        mime = IMAGE_MIME_TYPES.get(ext)
+        if not mime:
+            return {
+                "ok": False,
+                "error": f"Unsupported image type '{ext or 'unknown'}': {path}",
+            }
+
+        size = os.path.getsize(abs_path)
+        if size > MAX_IMAGE_BYTES:
+            return {
+                "ok": False,
+                "error": (
+                    f"Image too large ({size} bytes, limit {MAX_IMAGE_BYTES}): {path}"
+                ),
+            }
+
+        with open(abs_path, "rb") as f:
+            raw_bytes = f.read(MAX_IMAGE_BYTES + 1)
+
+        if len(raw_bytes) > MAX_IMAGE_BYTES:
+            return {
+                "ok": False,
+                "error": (
+                    f"Image too large (limit {MAX_IMAGE_BYTES} bytes): {path}"
+                ),
+            }
+
+        encoded = base64.b64encode(raw_bytes).decode("ascii")
+        return {
+            "ok": True,
+            "data": {
+                "path": abs_path,
+                "name": os.path.basename(abs_path),
+                "mime": mime,
+                "size": len(raw_bytes),
+                "data_url": f"data:{mime};base64,{encoded}",
+            },
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to read image '{path}': {str(e)}"}
 
 
 def write_file(path: str, content: str) -> Dict[str, Any]:

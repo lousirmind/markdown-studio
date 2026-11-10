@@ -203,6 +203,9 @@
         }
         return { ok: true, data: { mtimes: results } };
       },
+      read_file_data_url: async () => {
+        return { ok: false, error: 'Mock mode: local image data URL unavailable' };
+      },
       save_clipboard_image: async (currentMdPath, filename, base64Data) => {
         const imgName = filename || `img_${Date.now()}.png`;
         const relPath = `./assets/${imgName}`;
@@ -323,6 +326,16 @@
      */
     async readFile(path) {
       return callBridge('readFile', path);
+    },
+
+    /**
+     * Read a local image file as a base64 data URL.
+     * Backend enforces regular-file-only, image-extension whitelist and a 20MB cap.
+     * @param {string} path Absolute local image path
+     * @returns {Promise<{ success: boolean, data_url?: string, mime?: string, error?: string }>}
+     */
+    async readFileDataUrl(path) {
+      return callBridge('readFileDataUrl', path);
     },
 
     /**

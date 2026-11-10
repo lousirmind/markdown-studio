@@ -199,12 +199,20 @@
 /* ==========================================================================
    Tables & Code Styling
    ========================================================================== */
+/* 宽表格安全滚动：让 table 自身成为横向滚动容器，
+   避免外层 #reader-scroll-wrap { overflow-x: hidden } 直接裁切超宽列。
+   纯 CSS 增强，不改变 DOM 结构。 */
 #reader-container table,
 .vditor-reset table {
+  display: block;
   border-collapse: collapse;
   width: 100%;
+  max-width: 100%;
   margin: 1.2em 0;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
   border-radius: var(--radius-md);
   border: 1px solid var(--table-border);
 }
@@ -286,6 +294,14 @@
   pre, blockquote, table, img, .md-callout {
     page-break-inside: avoid;
     break-inside: avoid;
+  }
+
+  /* 打印时还原表格的表格布局，避免 display:block 影响分页与列宽 */
+  #reader-container table,
+  .vditor-reset table {
+    display: table !important;
+    width: 100% !important;
+    overflow: visible !important;
   }
 
   /* Ensure links are readable */

@@ -132,8 +132,12 @@
 
     const isOpen = typeof forceOpen === 'boolean' ? forceOpen : !drawer.classList.contains('open');
 
+    // .hidden carries display:none; open/active drive the slide-in transform.
+    // All three must be toggled together or the drawer stays invisible.
     drawer.classList.toggle('open', isOpen);
     drawer.classList.toggle('active', isOpen);
+    drawer.classList.toggle('hidden', !isOpen);
+    drawer.setAttribute('aria-hidden', isOpen ? 'false' : 'true');
 
     if (window.AppStore && typeof window.AppStore.setState === 'function') {
       window.AppStore.setState({ settingsVisible: isOpen });
@@ -166,7 +170,17 @@
 
     const elMaxWidth = document.getElementById('pref-max-width');
     if (elMaxWidth) {
-      elMaxWidth.value = String(prefs.maxWidth || '1000px').replace(/px$/i, '');
+      // Option values are exactly "800px" / "1000px" / "1200px" / "1600px" / "100%".
+      // Normalize legacy numeric values ("1000") to the canonical option value.
+      let maxWidth = String(prefs.maxWidth === undefined || prefs.maxWidth === null ? '' : prefs.maxWidth).trim();
+      if (/^\d+$/.test(maxWidth)) maxWidth = `${maxWidth}px`;
+      if (maxWidth.toLowerCase() === '100%') maxWidth = '100%';
+      if (!maxWidth) maxWidth = '1000px';
+      elMaxWidth.value = maxWidth;
+      // Unknown saved value: fall back to the default option instead of blank UI.
+      if (elMaxWidth.value !== maxWidth) {
+        elMaxWidth.value = '1000px';
+      }
     }
 
     const elCentered = document.getElementById('pref-centered');

@@ -169,6 +169,12 @@ body {
   background-color: var(--bg-primary);
 }
 
+/* Hidden state uses the shared .hidden utility; keep the rule explicit so the
+   flex layout above never leaks into other modes. */
+#reader-scroll-wrap.hidden {
+  display: none;
+}
+
 /* Reader Content Container */
 #reader-container {
   width: 100%;
@@ -201,8 +207,17 @@ body {
 }
 
 #settings-drawer.hidden {
+  display: none;
   transform: translateX(100%);
   pointer-events: none;
+}
+
+/* Open state (appearance.js removes .hidden and adds .open/.active). */
+#settings-drawer.open,
+#settings-drawer.active {
+  display: flex;
+  transform: translateX(0);
+  pointer-events: auto;
 }
 
 /* Statusbar */

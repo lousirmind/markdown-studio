@@ -61,6 +61,24 @@
   }
 
   /**
+   * 仅在文本真正变化时写入，避免状态栏高频刷新产生大量 DOM 变更
+   */
+  function setTextIfChanged(el, text) {
+    if (el && el.textContent !== text) {
+      el.textContent = text;
+    }
+  }
+
+  /**
+   * 仅在 title 真正变化时写入
+   */
+  function setTitleIfChanged(el, title) {
+    if (el && el.getAttribute('title') !== title) {
+      el.title = title;
+    }
+  }
+
+  /**
    * Update bottom status bar UI elements
    */
   function updateStatusBar() {
@@ -73,24 +91,35 @@
     // 1. File Path
     const pathEl = document.getElementById('status-file-path');
     if (pathEl) {
-      if (activeTab) {
-        pathEl.textContent = activeTab.path || activeTab.name || '未命名.md';
-        pathEl.title = activeTab.path || activeTab.name || '未命名.md';
-      } else {
-        pathEl.textContent = '未打开文档';
-        pathEl.title = '';
-      }
+      const pathText = activeTab
+        ? activeTab.path || activeTab.name || '未命名.md'
+        : '未打开文档';
+      setTextIfChanged(pathEl, pathText);
+      setTitleIfChanged(pathEl, activeTab ? pathText : '');
     }
 
     // 2. Save State
+    // 容器 #status-save-state 必须同步切换 saved / unsaved 类，否则颜色永远是绿色。
+    // 内层 span 只负责文案，颜色由容器类 + .status-dirty/.status-saved 共同决定。
     const saveStateEl = document.getElementById('status-save-state');
     if (saveStateEl) {
-      if (activeTab && activeTab.dirty) {
-        saveStateEl.innerHTML = '<span class="status-dirty">● 未保存修改</span>';
-        saveStateEl.title = '文档包含未保存的修改';
-      } else {
-        saveStateEl.innerHTML = '<span class="status-saved">已保存</span>';
-        saveStateEl.title = '文档内容与磁盘同步';
+      const isDirty = !!(activeTab && activeTab.dirty);
+
+      saveStateEl.classList.add('status-item');
+      saveStateEl.classList.toggle('unsaved', isDirty);
+      saveStateEl.classList.toggle('saved', !isDirty);
+
+      // 避免每次事件都重写 innerHTML（会产生大量 DOM 变更），仅在状态真正变化时更新
+      const nextState = isDirty ? 'dirty' : 'saved';
+      if (saveStateEl.getAttribute('data-save-state') !== nextState) {
+        saveStateEl.setAttribute('data-save-state', nextState);
+        if (isDirty) {
+          saveStateEl.innerHTML = '<span class="status-dirty">● 未保存修改</span>';
+          saveStateEl.title = '文档包含未保存的修改';
+        } else {
+          saveStateEl.innerHTML = '<span class="status-saved">已保存</span>';
+          saveStateEl.title = '文档内容与磁盘同步';
+        }
       }
     }
 
@@ -99,33 +128,34 @@
 
     const wordEl = document.getElementById('status-word-count');
     if (wordEl) {
-      wordEl.textContent = `${stats.words} 词`;
-      wordEl.title = `总词数 (汉字 + 英文单词): ${stats.words}`;
+      setTextIfChanged(wordEl, `${stats.words} 词`);
+      setTitleIfChanged(wordEl, `总词数 (汉字 + 英文单词): ${stats.words}`);
     }
 
     const charEl = document.getElementById('status-char-count');
     if (charEl) {
-      charEl.textContent = `${stats.chars} 字符`;
-      charEl.title = `总字符数: ${stats.chars}`;
+      setTextIfChanged(charEl, `${stats.chars} 字符`);
+      setTitleIfChanged(charEl, `总字符数: ${stats.chars}`);
     }
 
     const lineEl = document.getElementById('status-line-count');
     if (lineEl) {
-      lineEl.textContent = `${stats.lines} 行`;
-      lineEl.title = `总行数: ${stats.lines}`;
+      setTextIfChanged(lineEl, `${stats.lines} 行`);
+      setTitleIfChanged(lineEl, `总行数: ${stats.lines}`);
     }
 
     const readTimeEl = document.getElementById('status-read-time');
     if (readTimeEl) {
-      readTimeEl.textContent = `约 ${stats.readTimeMin} 分钟`;
-      readTimeEl.title = `按每分钟 300 词估算阅读耗时: 约 ${stats.readTimeMin} 分钟`;
+      setTextIfChanged(readTimeEl, `约 ${stats.readTimeMin} 分钟`);
+      setTitleIfChanged(readTimeEl, `按每分钟 300 词估算阅读耗时: 约 ${stats.readTimeMin} 分钟`);
     }
 
     // 4. Editor Mode Label
     const modeEl = document.getElementById('status-mode-label');
     if (modeEl) {
-      modeEl.textContent = MODE_LABELS[currentMode] || currentMode;
-      modeEl.title = `当前排版模式: ${MODE_LABELS[currentMode] || currentMode}`;
+      const modeLabel = MODE_LABELS[currentMode] || currentMode;
+      setTextIfChanged(modeEl, modeLabel);
+      setTitleIfChanged(modeEl, `当前排版模式: ${modeLabel}`);
     }
   }
 

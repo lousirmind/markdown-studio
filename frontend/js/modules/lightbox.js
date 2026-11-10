@@ -90,9 +90,12 @@
     if (!images || images.length <= 1) {
       thumbsContainer.innerHTML = '';
       thumbsContainer.style.display = 'none';
+      thumbsContainer.classList.add('hidden');
       return;
     }
 
+    // 多图时才显示底部缩略图条（打开时移除 .hidden 的兜底处理也在此）
+    thumbsContainer.classList.remove('hidden');
     thumbsContainer.style.display = 'flex';
     thumbsContainer.innerHTML = '';
     const fragment = document.createDocumentFragment();
@@ -163,6 +166,10 @@
     modal.classList.add('active');
     modal.style.display = 'flex';
 
+    // 缩略图条初始带 .hidden（display:none !important），打开时必须显式移除
+    const thumbsEl = document.getElementById('lightbox-thumbs');
+    if (thumbsEl) thumbsEl.classList.remove('hidden');
+
     renderThumbnails();
     showImage(currentIndex);
   }
@@ -178,6 +185,14 @@
     modal.classList.remove('active');
     modal.classList.add('hidden');
     modal.style.display = 'none';
+
+    // 关闭时恢复缩略图条的初始隐藏状态，避免下次打开出现空条
+    const thumbsEl = document.getElementById('lightbox-thumbs');
+    if (thumbsEl) {
+      thumbsEl.classList.add('hidden');
+      thumbsEl.style.display = 'none';
+      thumbsEl.innerHTML = '';
+    }
 
     resetTransform();
     images = [];

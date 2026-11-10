@@ -16,47 +16,200 @@
   let isRenderingReader = false;
   let renderDebounceTimer = null;
 
+  // Cache of absolute local image path -> { dataUrl, ts } for bridge reads.
+  const imageDataUrlCache = new Map();
+  const IMAGE_FAILURE_RETRY_MS = 10000;
+
   /**
-   * Resolve relative local image src paths in the DOM into file:// URLs
-   * without modifying Markdown source content.
+   * Normalize a local filesystem path: collapses '.', '..' and duplicate
+   * separators while preserving POSIX / Windows drive prefixes.
+   * @param {string} rawPath
+   * @returns {string}
    */
-  function resolveRelativeImages(containerEl) {
+  function normalizeLocalPath(rawPath) {
+    const unified = String(rawPath || '').replace(/\\/g, '/');
+    const driveMatch = unified.match(/^([A-Za-z]:)(\/?)/);
+    const prefix = driveMatch ? driveMatch[1] : '';
+    const rest = driveMatch ? unified.slice(driveMatch[0].length) : unified;
+    const isAbsolute = rest.charAt(0) === '/';
+    const segments = [];
+
+    rest.split('/').forEach((segment) => {
+      if (!segment || segment === '.') return;
+      if (segment === '..') {
+        if (segments.length > 0 && segments[segments.length - 1] !== '..') {
+          segments.pop();
+        } else if (!isAbsolute) {
+          segments.push('..');
+        }
+        return;
+      }
+      segments.push(segment);
+    });
+
+    const body = segments.join('/');
+    if (prefix) return prefix + (isAbsolute ? '/' : '') + body;
+    return (isAbsolute ? '/' : '') + body;
+  }
+
+  /**
+   * Safely percent-decode a path fragment produced by the browser/Vditor.
+   */
+  function safeDecodeURI(value) {
+    if (!value || value.indexOf('%') === -1) return value;
+    try {
+      return decodeURIComponent(value);
+    } catch (e) {
+      return value;
+    }
+  }
+
+  /**
+   * Convert an <img> src into an absolute local filesystem path.
+   * Handles relative paths (./, ../, spaces/Chinese), file:// URLs, and
+   * loopback http://127.0.0.1:<port>/... URLs produced by the static server.
+   * Returns null for external http(s)/data/blob URLs or unsupported values.
+   * @param {string} rawSrc
+   * @param {string} docDir
+   * @returns {string|null}
+   */
+  function localImagePathFromSrc(rawSrc, docDir) {
+    const src = String(rawSrc || '').trim();
+    if (!src) return null;
+
+    // Inline / runtime URLs are already usable by the <img> element.
+    if (/^(data:|blob:)/i.test(src)) return null;
+
+    // file:// URLs (legacy content or absolute markdown references)
+    if (/^file:\/\//i.test(src)) {
+      let filePath = src.replace(/^file:\/\//i, '');
+      if (/^localhost\//i.test(filePath)) {
+        filePath = filePath.slice('localhost'.length);
+      }
+      // Windows file:///C:/... -> C:/...
+      if (/^\/[A-Za-z]:\//.test(filePath)) {
+        filePath = filePath.slice(1);
+      }
+      return normalizeLocalPath(safeDecodeURI(filePath));
+    }
+
+    // External links stay untouched; only loopback static-server URLs are local.
+    if (/^https?:\/\//i.test(src)) {
+      let parsed = null;
+      try {
+        parsed = new URL(src, window.location.href);
+      } catch (e) {
+        return null;
+      }
+      const host = (parsed.hostname || '').toLowerCase();
+      const isLoopback =
+        host === '127.0.0.1' ||
+        host === 'localhost' ||
+        host === '::1' ||
+        host === '[::1]';
+      if (!isLoopback) return null;
+      const pathname = safeDecodeURI(parsed.pathname || '');
+      const rel = pathname.replace(/^\/+/, '');
+      if (!rel) return null;
+      // The static server root is frontend/; document media lives next to the
+      // markdown file, so resolve the URL path against the document directory.
+      return normalizeLocalPath(`${docDir}/${rel}`);
+    }
+
+    // Protocol-relative URLs point at remote hosts.
+    if (/^\/\//.test(src)) return null;
+
+    // Absolute local filesystem paths.
+    if (/^\//.test(src) || /^[A-Za-z]:[\\/]/.test(src)) {
+      return normalizeLocalPath(safeDecodeURI(src));
+    }
+
+    // Plain relative path ("assets/a.png", "../images/a b.png", "./x/中文.png").
+    return normalizeLocalPath(`${docDir}/${safeDecodeURI(src)}`);
+  }
+
+  /**
+   * Look up a cached data URL. Returns undefined when not cached, null when a
+   * recent failure should be skipped.
+   */
+  function getCachedImageDataUrl(absPath) {
+    const entry = imageDataUrlCache.get(absPath);
+    if (!entry) return undefined;
+    if (entry.dataUrl) return entry.dataUrl;
+    if (Date.now() - entry.ts > IMAGE_FAILURE_RETRY_MS) {
+      imageDataUrlCache.delete(absPath);
+      return undefined;
+    }
+    return null;
+  }
+
+  /**
+   * Resolve local image references into data URLs through the Python bridge.
+   * pywebview serves frontend/ over http://127.0.0.1:<port>, so files that live
+   * next to the opened markdown document (sample/assets/...) are outside the
+   * static root and must be embedded. Never throws; failures fall back silently.
+   * @param {HTMLElement} containerEl
+   * @returns {Promise<void>}
+   */
+  async function resolveRelativeImages(containerEl) {
     if (!containerEl) return;
+    if (!window.BridgeClient || typeof window.BridgeClient.readFileDataUrl !== 'function') {
+      return;
+    }
+
     const activeTab = window.AppStore ? window.AppStore.getActiveTab() : null;
     const filePath = activeTab ? activeTab.path : null;
     if (!filePath) return;
 
-    // Extract directory from active file path
     const lastSlash = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'));
     if (lastSlash === -1) return;
     const docDir = filePath.slice(0, lastSlash);
+    if (!docDir) return;
 
-    const imgs = containerEl.querySelectorAll('img');
+    const imgs = Array.from(containerEl.querySelectorAll('img'));
+    const pending = [];
+
     imgs.forEach((img) => {
       const rawSrc = img.getAttribute('src');
       if (!rawSrc) return;
 
-      // Skip absolute protocols and data URLs
-      if (
-        rawSrc.startsWith('http://') ||
-        rawSrc.startsWith('https://') ||
-        rawSrc.startsWith('data:') ||
-        rawSrc.startsWith('file://') ||
-        rawSrc.startsWith('blob:')
-      ) {
+      const absPath = localImagePathFromSrc(rawSrc, docDir);
+      if (!absPath) return;
+
+      const cached = getCachedImageDataUrl(absPath);
+      if (typeof cached === 'string') {
+        if (img.getAttribute('src') !== cached) {
+          img.setAttribute('src', cached);
+        }
         return;
       }
+      if (cached === null) return;
 
-      // Clean relative path (e.g. "./assets/img.png" -> "assets/img.png")
-      let cleanRel = rawSrc.replace(/^\.\//, '');
-      let fullPath = `${docDir}/${cleanRel}`.replace(/\\/g, '/');
-
-      // Ensure proper file URL scheme
-      if (!fullPath.startsWith('/')) {
-        fullPath = `/${fullPath}`;
-      }
-      img.src = `file://${fullPath}`;
+      pending.push(
+        (async () => {
+          try {
+            const res = await window.BridgeClient.readFileDataUrl(absPath);
+            const isOk = !!res && res.ok !== false && res.success !== false;
+            const dataUrl =
+              res && (res.data_url || res.dataUrl ||
+                (res.data && (res.data.data_url || res.data.dataUrl)));
+            if (isOk && typeof dataUrl === 'string' && dataUrl.startsWith('data:')) {
+              imageDataUrlCache.set(absPath, { dataUrl, ts: Date.now() });
+              img.setAttribute('src', dataUrl);
+            } else {
+              imageDataUrlCache.set(absPath, { dataUrl: null, ts: Date.now() });
+            }
+          } catch (err) {
+            // Broken/missing local image: keep original src, never break render.
+            imageDataUrlCache.set(absPath, { dataUrl: null, ts: Date.now() });
+          }
+        })()
+      );
     });
+
+    if (pending.length > 0) {
+      await Promise.all(pending);
+    }
   }
 
   /**
@@ -556,13 +709,27 @@
       const activeTab = window.AppStore ? window.AppStore.getActiveTab() : null;
       const currentContent = activeTab ? activeTab.content : this.getValue();
 
+      // Visibility is driven by the .hidden utility class (never inline
+      // display + !important), so flex layout and scroll listeners stay intact.
       if (targetMode === 'reader') {
-        if (vditorContainerEl) vditorContainerEl.style.display = 'none';
-        if (readerScrollWrapEl) readerScrollWrapEl.style.display = 'flex';
+        if (vditorContainerEl) {
+          vditorContainerEl.classList.add('hidden');
+          vditorContainerEl.style.removeProperty('display');
+        }
+        if (readerScrollWrapEl) {
+          readerScrollWrapEl.classList.remove('hidden');
+          readerScrollWrapEl.style.removeProperty('display');
+        }
         renderReaderMode(currentContent);
       } else {
-        if (readerScrollWrapEl) readerScrollWrapEl.style.display = 'none';
-        if (vditorContainerEl) vditorContainerEl.style.display = 'block';
+        if (readerScrollWrapEl) {
+          readerScrollWrapEl.classList.add('hidden');
+          readerScrollWrapEl.style.removeProperty('display');
+        }
+        if (vditorContainerEl) {
+          vditorContainerEl.classList.remove('hidden');
+          vditorContainerEl.style.removeProperty('display');
+        }
 
         // Re-initialize Vditor if switching mode or first creation
         if (!vditorInstance || prevMode !== targetMode || force) {

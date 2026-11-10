@@ -165,7 +165,7 @@ def run_e2e_tests(window):
 
         reader_active = window.evaluate_js(
             "document.getElementById('app-root').dataset.mode === 'reader' && "
-            "document.getElementById('reader-scroll-wrap').style.display !== 'none'"
+            "getComputedStyle(document.getElementById('reader-scroll-wrap')).display !== 'none'"
         )
         log_test("Switch to Reader Mode", reader_active, "dataset.mode = 'reader', reader-scroll-wrap visible")
 
@@ -183,14 +183,27 @@ def run_e2e_tests(window):
             f"Rendered {callout_count} Callouts: {callout_classes}",
         )
 
-        # Verify Relative Local Image Resolution
-        cover_img_src = window.evaluate_js(
-            "const img = document.querySelector('#reader-container img'); img ? img.src : ''"
-        ) or ""
+        # Verify Local Image Loading (bridge data URL; async resolution -> poll)
+        cover_img_src = ""
+        cover_img_ok = False
+        for _ in range(60):
+            time.sleep(0.25)
+            img_state = window.evaluate_js(
+                "(() => { const img = document.querySelector('#reader-container img');"
+                " if (!img) return null;"
+                " return JSON.stringify({src: img.src, w: img.naturalWidth, complete: img.complete}); })()"
+            )
+            if not img_state:
+                continue
+            state = json.loads(img_state)
+            cover_img_src = (state.get("src") or "")[:80]
+            if state.get("w", 0) > 0:
+                cover_img_ok = True
+                break
         log_test(
-            "Relative Local Image Resolution",
-            cover_img_src.startswith("file://") and "welcome_cover.svg" in cover_img_src,
-            f"Resolved src: {cover_img_src}",
+            "Local Image Loaded (bridge data URL)",
+            cover_img_ok and cover_img_src.startswith("data:image/"),
+            f"Resolved src: {cover_img_src}... naturalWidth>0: {cover_img_ok}",
         )
 
         # 8. Test Switch to SV Mode (Split View)
@@ -260,15 +273,36 @@ def run_e2e_tests(window):
         window.destroy()
 
 
+def builtin_display_origin(width, height, margin=40):
+    """Place the test window on the built-in display (Cocoa bottom-left coords)."""
+    try:
+        from AppKit import NSScreen
+        from Quartz import CGDisplayIsBuiltin
+        for s in NSScreen.screens():
+            did = s.deviceDescription().objectForKey_("NSScreenNumber")
+            if did is not None and CGDisplayIsBuiltin(int(did)):
+                f = s.frame()
+                return (int(f.origin.x + margin), int(f.origin.y + f.size.height - height - margin))
+    except Exception:
+        pass
+    return (40, 40)
+
+
 def main():
     bridge = DesktopBridge(initial_file=WELCOME_MD)
+
+    win_w, win_h = 1400, 900
+    win_x, win_y = builtin_display_origin(win_w, win_h)
 
     window = webview.create_window(
         title="Markdown Studio [E2E Test]",
         url=FRONTEND_HTML,
         js_api=bridge,
-        width=1400,
-        height=900,
+        width=win_w,
+        height=win_h,
+        x=win_x,
+        y=win_y,
+        focus=False,
         text_select=True,
     )
     bridge.set_window(window)
