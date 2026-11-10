@@ -225,6 +225,218 @@
 }
 
 /* ==========================================================================
+   Recent Files Popover
+   Lightweight, non-blocking list anchored under the history button.
+   All colors come from theme CSS variables (light / dark / auto).
+   ========================================================================== */
+.recent-files-anchor {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+#btn-recent-files.active {
+  background-color: var(--btn-bg-active);
+  color: var(--text-primary);
+}
+
+.recent-files-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  width: 328px;
+  max-width: calc(100vw - 24px);
+  max-height: min(420px, calc(100vh - var(--header-height) - 24px));
+  padding: 10px;
+  box-sizing: border-box;
+  background-color: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  animation: recentFilesIn 0.16s ease-out;
+}
+
+.recent-files-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.recent-files-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.recent-files-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.recent-files-close:hover {
+  background-color: var(--btn-bg-hover);
+  color: var(--text-primary);
+}
+
+.recent-files-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-height: 40px;
+  margin-top: 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.recent-files-empty {
+  padding: 22px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.recent-file-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  color: var(--text-primary);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.recent-file-item:hover {
+  background-color: var(--btn-bg-hover);
+}
+
+.recent-file-item:focus-visible {
+  outline: none;
+  border-color: var(--border-focus);
+}
+
+.recent-file-item.missing {
+  color: var(--text-muted);
+  cursor: default;
+  opacity: 0.72;
+}
+
+.recent-file-item.missing:hover {
+  background-color: var(--btn-bg);
+}
+
+.recent-file-icon {
+  flex-shrink: 0;
+  width: 16px;
+  font-size: 12px;
+  text-align: center;
+  opacity: 0.85;
+}
+
+.recent-file-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+.recent-file-name {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.recent-file-dir {
+  overflow: hidden;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.recent-file-missing-badge {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  background-color: var(--btn-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-pill);
+}
+
+.recent-files-footer {
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.recent-files-clear {
+  padding: 3px 8px;
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background-color: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.recent-files-clear:hover {
+  background-color: var(--btn-bg-hover);
+  color: var(--text-primary);
+}
+
+/* Non-blocking entrance: opacity stays 1 so a throttled WKWebView can never
+   leave the panel invisible. */
+@keyframes recentFilesIn {
+  from {
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Keep the popover usable in narrow windows (e.g. 900px). */
+@media (max-width: 900px) {
+  .recent-files-popover {
+    width: 300px;
+  }
+}
+
+/* ==========================================================================
    Header & Tabs
    ========================================================================== */
 .header-left,
@@ -267,6 +479,7 @@
   white-space: nowrap;
   max-width: 180px;
   position: relative;
+  -webkit-user-drag: element;
   transition: background-color var(--transition-fast), color var(--transition-fast);
 }
 
@@ -327,6 +540,40 @@
 .tab-item .tab-close-btn:hover {
   background-color: var(--btn-bg-active);
   color: var(--text-primary);
+}
+
+/* ==========================================================================
+   Tab Drag-Sorting
+   Insertion indicator = 2px accent line on the target tab's left/right edge.
+   ========================================================================== */
+.tab-item.dragging {
+  opacity: 0.55;
+}
+
+.tab-item.drop-before::before,
+.tab-item.drop-after::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  border-radius: 1px;
+  background-color: var(--accent-color);
+  box-shadow: 0 0 0 1px var(--accent-subtle);
+  pointer-events: none;
+}
+
+.tab-item.drop-before::before {
+  left: -3px;
+}
+
+.tab-item.drop-after::after {
+  right: -3px;
+}
+
+.tab-item.dragging.drop-before::before,
+.tab-item.dragging.drop-after::after {
+  display: none;
 }
 
 /* ==========================================================================

@@ -18,6 +18,8 @@
     sortBy: 'name',
     sortAsc: true,
     customCss: '',
+    // Recent files: newest first, max 20 entries { path, name, openedAt }.
+    recentFiles: [],
   };
 
   const state = {
@@ -201,6 +203,50 @@
       if (window.AppBus) {
         window.AppBus.emit('tab:activated', { tab: { ...target } });
       }
+    },
+
+    /**
+     * Reorder one tab in place (drag & drop tab sorting).
+     *
+     * The tab object identity and activeTabId are preserved: this method only
+     * moves the element, so the editor is never rebuilt and dirty/close
+     * behaviour is untouched. It deliberately bypasses addTab/closeTab so no
+     * open/close side effects can fire.
+     *
+     * @param {string} tabId Tab to move
+     * @param {number} targetIndex Desired final index in the resulting list
+     * @returns {{tabId: string, fromIndex: number, toIndex: number, tabs: object[]}|null}
+     */
+    moveTab(tabId, targetIndex) {
+      if (!tabId) return null;
+
+      const fromIndex = state.tabs.findIndex((t) => t.id === tabId);
+      if (fromIndex === -1) return null;
+
+      const numericTarget = Number(targetIndex);
+      if (!Number.isFinite(numericTarget)) return null;
+
+      const lastIndex = state.tabs.length - 1;
+      const toIndex = Math.max(0, Math.min(lastIndex, Math.trunc(numericTarget)));
+      if (toIndex === fromIndex) return null;
+
+      const [moved] = state.tabs.splice(fromIndex, 1);
+      state.tabs.splice(toIndex, 0, moved);
+
+      // activeTabId is intentionally untouched: the active tab stays active
+      // even when another tab is dragged past it.
+      const payload = {
+        tabId,
+        fromIndex,
+        toIndex,
+        tabs: state.tabs.map((t) => ({ ...t })),
+      };
+
+      if (window.AppBus) {
+        window.AppBus.emit('tab:reordered', payload);
+      }
+
+      return payload;
     },
 
     /**

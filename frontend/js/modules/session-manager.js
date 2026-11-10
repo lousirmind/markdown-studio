@@ -208,6 +208,7 @@
           'tab:activated',
           'tab:switched',
           'tab:content-updated',
+          'tab:reordered',
           'file:saved',
           'editor:mode-changed',
           'folder:open-request',
