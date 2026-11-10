@@ -87,6 +87,11 @@
               <path d="M2 1a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4.414a1 1 0 0 0-.293-.707l-2.414-2.414A1 1 0 0 0 11.586 1H2Zm3 1h6v3H5V2Zm-2 5h10v7H3V7Z"/>
             </svg>
           </button>
+          <button id="btn-search" class="btn-icon" title="查找替换 (Cmd/Ctrl+F)" aria-label="查找替换">
+            <svg viewBox="0 0 16 16" fill="currentColor">
+              <path d="M6.5 1a5.5 5.5 0 1 0 3.478 9.75l3.16 3.16a.75.75 0 1 0 1.06-1.06l-3.16-3.16A5.5 5.5 0 0 0 6.5 1Zm-4 5.5a4 4 0 1 1 8 0 4 4 0 0 1-8 0Z"/>
+            </svg>
+          </button>
         </div>
       </div>
 
@@ -340,6 +345,48 @@
       </div>
     </footer>
 
+    <!-- Non-modal Find & Replace panel (search-replace.js) -->
+    <div id="search-replace-panel" class="search-replace-panel hidden" role="dialog" aria-label="查找替换" aria-hidden="true">
+      <div class="sr-row sr-row-main">
+        <button id="sr-toggle-replace" class="sr-icon-btn" type="button" title="展开替换 (Cmd/Ctrl+Alt+F)" aria-label="展开替换" aria-expanded="false">
+          <svg viewBox="0 0 16 16" fill="currentColor">
+            <path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z"/>
+          </svg>
+        </button>
+        <input id="sr-find-input" class="sr-input" type="text" placeholder="查找..." aria-label="查找内容" autocomplete="off" spellcheck="false" />
+        <span id="sr-count" class="sr-count" title="当前匹配 / 匹配总数">0/0</span>
+        <button id="sr-prev" class="sr-icon-btn" type="button" title="上一个匹配 (Shift+Enter)" aria-label="上一个匹配">
+          <svg viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 3.5a.75.75 0 0 1 .53.22l4 4a.75.75 0 0 1-1.06 1.06L8.75 6.06v6.19a.75.75 0 0 1-1.5 0V6.06L4.53 8.78a.75.75 0 0 1-1.06-1.06l4-4A.75.75 0 0 1 8 3.5Z"/>
+          </svg>
+        </button>
+        <button id="sr-next" class="sr-icon-btn" type="button" title="下一个匹配 (Enter)" aria-label="下一个匹配">
+          <svg viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 12.5a.75.75 0 0 1-.53-.22l-4-4a.75.75 0 0 1 1.06-1.06L7.25 9.94V3.75a.75.75 0 0 1 1.5 0v6.19l2.72-2.72a.75.75 0 1 1 1.06 1.06l-4 4a.75.75 0 0 1-.53.22Z"/>
+          </svg>
+        </button>
+        <button id="sr-close" class="sr-icon-btn" type="button" title="关闭 (Esc)" aria-label="关闭查找替换">✕</button>
+      </div>
+
+      <div id="sr-replace-row" class="sr-row sr-row-replace hidden">
+        <input id="sr-replace-input" class="sr-input" type="text" placeholder="替换为..." aria-label="替换内容" autocomplete="off" spellcheck="false" />
+        <button id="sr-replace-one" class="sr-btn" type="button" title="替换当前匹配并跳到下一个">替换</button>
+        <button id="sr-replace-all" class="sr-btn" type="button" title="替换全部匹配">全部替换</button>
+      </div>
+
+      <div class="sr-row sr-row-options">
+        <label class="sr-check" for="sr-option-case"><input type="checkbox" id="sr-option-case" /><span>区分大小写</span></label>
+        <label class="sr-check" for="sr-option-regex"><input type="checkbox" id="sr-option-regex" /><span>正则</span></label>
+        <label class="sr-check" for="sr-option-whole"><input type="checkbox" id="sr-option-whole" /><span>整词</span></label>
+        <span id="sr-message" class="sr-message" role="status" aria-live="polite"></span>
+      </div>
+
+      <div id="sr-preview" class="sr-preview hidden">
+        <span id="sr-preview-text" class="sr-preview-text"></span>
+        <button id="sr-copy" class="sr-copy-btn" type="button" title="复制匹配内容">复制</button>
+      </div>
+    </div>
+
     <!-- Fullscreen Image Lightbox Modal -->
     <div id="lightbox-modal" class="lightbox-modal hidden">
       <div class="lightbox-toolbar">
@@ -389,6 +436,7 @@
   <script src="./js/modules/appearance.js"></script>
   <script src="./js/modules/lightbox.js"></script>
   <script src="./js/modules/exporter-status.js"></script>
+  <script src="./js/modules/search-replace.js"></script>
   <script src="./js/app.js"></script>
 </body>
 </html>

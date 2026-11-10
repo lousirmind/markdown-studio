@@ -959,6 +959,62 @@
     },
 
     /**
+     * Apply externally produced content (find & replace, scripted edits) to the
+     * active document through the normal state/save chain.
+     *
+     * Unlike setValue(), this also updates AppStore and emits
+     * editor:content-changed, so auto-save, status bar and any listener observe
+     * exactly the same document. Vditor's undo stack is preserved
+     * (clearStack = false), so Cmd+Z can still revert the change.
+     *
+     * @param {string} markdown
+     * @returns {boolean} whether the content actually changed
+     */
+    applyExternalContent(markdown) {
+      const text = typeof markdown === 'string' ? markdown : '';
+      const activeTab = getActiveTabSafe();
+      const previous = activeTab && typeof activeTab.content === 'string'
+        ? activeTab.content
+        : this.getValue();
+      if (previous === text) return false;
+
+      // 1. Store content + dirty state (single owner of content state).
+      if (window.AppStore) {
+        window.AppStore.updateActiveTabContent(text);
+      }
+
+      // 2. Editor / reader view.
+      if (currentMode === 'reader') {
+        renderReaderMode(text);
+      } else if (vditorInstance && isVditorReady) {
+        if (safeGetEditorValue() !== text) {
+          try {
+            vditorInstance.setValue(text, false);
+          } catch (e) {
+            console.warn('[EditorEngine] applyExternalContent setValue error, buffered:', e);
+            pendingContent = text;
+          }
+        }
+        markEditorApplied(getActiveTabSafe(), text);
+        notifyRendered(text, { force: true });
+      } else {
+        pendingContent = text;
+        markEditorApplied(getActiveTabSafe(), text);
+        notifyRendered(text, { force: true });
+      }
+
+      // 3. Save chain + consumers that only listen to editor:content-changed.
+      if (window.AppBus) {
+        window.AppBus.emit('editor:content-changed', {
+          path: activeTab ? activeTab.path : null,
+          content: text,
+        });
+      }
+
+      return true;
+    },
+
+    /**
      * Insert Markdown content at current cursor position.
      * @param {string} val
      */

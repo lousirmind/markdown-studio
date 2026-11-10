@@ -42,6 +42,7 @@
         { name: 'TabManager', module: window.TabManager },
         { name: 'Lightbox', module: window.Lightbox },
         { name: 'ExporterStatus', module: window.ExporterStatus },
+        { name: 'SearchReplace', module: window.SearchReplace },
       ];
 
       for (let i = 0; i < modules.length; i++) {

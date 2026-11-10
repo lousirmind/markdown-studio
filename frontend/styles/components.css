@@ -1506,3 +1506,271 @@
   line-height: 1.6;
   color: var(--text-secondary);
 }
+
+/* ==========================================================================
+   Find & Replace Panel (search-replace.js)
+   Non-modal floating overlay anchored at the top-right, below the header.
+   All colors come from the theme CSS variables (light / dark / auto).
+   ========================================================================== */
+.search-replace-panel {
+  position: fixed;
+  top: calc(var(--header-height) + 10px);
+  right: 16px;
+  z-index: 130;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(560px, calc(100vw - 32px));
+  padding: 10px;
+  box-sizing: border-box;
+  background-color: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  user-select: none;
+  animation: searchReplaceIn 0.16s ease-out;
+}
+
+/* Opacity stays 1 in every keyframe: a throttled WKWebView must never leave
+   the panel invisible. */
+@keyframes searchReplaceIn {
+  from {
+    transform: translateY(-4px) scale(0.99);
+  }
+  to {
+    transform: translateY(0) scale(1);
+  }
+}
+
+.sr-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sr-row-replace {
+  padding-left: 28px;
+}
+
+.sr-row-options {
+  padding-left: 28px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.sr-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--transition-fast), color var(--transition-fast),
+    transform var(--transition-fast);
+}
+
+.sr-icon-btn:hover:not(:disabled) {
+  background-color: var(--btn-bg-hover);
+  color: var(--text-primary);
+}
+
+.sr-icon-btn:active:not(:disabled) {
+  background-color: var(--btn-bg-active);
+  transform: scale(0.95);
+}
+
+.sr-icon-btn:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+.sr-icon-btn svg {
+  width: 13px;
+  height: 13px;
+  pointer-events: none;
+  transition: transform var(--transition-fast);
+}
+
+.sr-icon-btn.expanded svg {
+  transform: rotate(90deg);
+}
+
+#btn-search.active {
+  background-color: var(--btn-bg-active);
+  color: var(--text-primary);
+}
+
+.sr-input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  font-family: inherit;
+  font-size: 12.5px;
+  color: var(--text-primary);
+  background-color: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  user-select: text;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.sr-input:focus {
+  border-color: var(--input-focus-border);
+  box-shadow: 0 0 0 2px var(--accent-subtle);
+}
+
+.sr-has-error .sr-input#sr-find-input {
+  border-color: #ff3b30;
+}
+
+.sr-count {
+  flex-shrink: 0;
+  min-width: 44px;
+  text-align: center;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.sr-btn {
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 10px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--btn-text);
+  background-color: var(--btn-bg);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.sr-btn:hover:not(:disabled) {
+  background-color: var(--btn-bg-hover);
+}
+
+.sr-btn:active:not(:disabled) {
+  background-color: var(--btn-bg-active);
+}
+
+.sr-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.sr-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sr-check input[type="checkbox"] {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--accent-color);
+  cursor: pointer;
+}
+
+.sr-check:hover {
+  color: var(--text-primary);
+}
+
+.sr-message {
+  flex: 1 1 100%;
+  min-width: 0;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  word-break: break-word;
+}
+
+.sr-message:empty {
+  display: none;
+}
+
+.sr-message-error {
+  color: #ff3b30;
+}
+
+.sr-message-ok {
+  color: var(--accent-color);
+}
+
+.sr-preview {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.sr-preview-text {
+  flex: 1;
+  min-width: 0;
+  user-select: text;
+  word-break: break-word;
+}
+
+.sr-mark {
+  padding: 0 1px;
+  color: var(--text-primary);
+  background-color: var(--accent-subtle);
+  border-radius: 2px;
+}
+
+.sr-copy-btn {
+  flex-shrink: 0;
+  height: 22px;
+  padding: 0 8px;
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background-color: var(--btn-bg);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.sr-copy-btn:hover {
+  background-color: var(--btn-bg-hover);
+  color: var(--text-primary);
+}
+
+@media (max-width: 640px) {
+  .search-replace-panel {
+    top: calc(var(--header-height) + 6px);
+    right: 8px;
+    width: calc(100vw - 16px);
+  }
+
+  .sr-row-replace,
+  .sr-row-options {
+    padding-left: 0;
+  }
+}
+
