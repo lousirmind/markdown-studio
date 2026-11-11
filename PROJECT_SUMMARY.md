@@ -2,7 +2,7 @@
 
 ## 1. 项目基本信息
 - **项目名称**：Markdown Studio (独立 Markdown 阅读与编辑器)
-- **项目位置**：`/Users/chenyidongting/Documents/5-Python/进行中/20-MarkdownReader-独立阅读编辑器-开发中`
+- **项目位置**：本地项目目录（源码约 20 MB，打包产物约 74 MB）
 - **定位**：面向 macOS 的纯原生独立桌面端 Markdown 阅读与编辑应用。彻底剥离 Chrome 浏览器扩展架构与包袱，以 GitHub 成熟开源组件 `Vditor` 为核心底座，结合 Python `pywebview` 原生宿主，实现 100% 离线、高精度排版、极低自研代码量的桌面级软件。
 
 ---
@@ -132,4 +132,3 @@ python3 test_e2e.py
   13. `[PASS]` 外观偏好设置动态响应与 CSS 变量实时更新
   14. `[PASS]` 原生 PDF 导出（A4 分页、真实文件落盘、页数校验）
   15. `[PASS]` 全程零未捕获 JavaScript 运行时异常（Zero Uncaught Errors）
-

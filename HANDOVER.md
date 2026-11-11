@@ -325,7 +325,7 @@ flowchart TD
 
 1. **终端命令启动**：
    ```bash
-   cd /Users/chenyidongting/Documents/5-Python/进行中/20-MarkdownReader-独立阅读编辑器-开发中
+   cd <项目目录>
    python3 main.py
    ```
 2. **指定打开某一个 Markdown 文件**：
