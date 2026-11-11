@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 
 APP_NAME="Markdown Studio"
 BUNDLE_ID="com.markdownstudio.desktop"
-VERSION="1.1.0"
+VERSION="1.1.1"
 
 # 1) Re-generate the icon (requires Pillow); skipped when Pillow is unavailable
 #    and the committed .icns already exists.
@@ -68,6 +68,11 @@ PLIST="${APP_PATH}/Contents/Info.plist"
   || /usr/libexec/PlistBuddy -c "Add :NSHighResolutionCapable bool true" "$PLIST"
 /usr/libexec/PlistBuddy -c "Set :LSApplicationCategoryType public.app-category.productivity" "$PLIST" 2>/dev/null \
   || /usr/libexec/PlistBuddy -c "Add :LSApplicationCategoryType string public.app-category.productivity" "$PLIST"
+
+# 3b) Declare Markdown/plain-text document types so Finder/LaunchServices can
+#     hand .md/.txt files to the app (UTI declarations must exist before the
+#     bundle is signed; patching afterwards invalidates the signature).
+python3 packaging/patch_info_plist.py "$APP_PATH"
 
 # 4) Ad-hoc signature. macOS sometimes refuses to sign in place because of
 #    provenance xattrs, so fall back to signing a clean ditto copy.

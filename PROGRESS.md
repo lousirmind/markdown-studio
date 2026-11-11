@@ -2,7 +2,7 @@
 
 > 记录当前交付状态、质量基线、已知限制与后续计划。更新于 2026-11-11。
 
-## 当前版本：v1.1.0
+## 当前版本：v1.1.1
 
 | 能力 | 状态 | 提交 |
 | :--- | :--- | :--- |
@@ -15,6 +15,7 @@
 | 查找命中高亮（CSS Custom Highlight API） | ✅ | `dd62749` |
 | 快速打开 / 命令面板（Cmd+P / Cmd+Shift+P） | ✅ | `eebae0c` |
 | 文档与 v1.1.0 发布配置 | ✅ | `6233f12` |
+| Finder 双击/“打开方式”打开文档（Info.plist UTI + NSApplication openURLs） | ✅ | v1.1.1 |
 
 ### 质量基线（最终代码）
 
@@ -84,3 +85,4 @@
 ## 发布记录
 
 - **v1.1.0**（2026-11-11）：7 项交互增强 + 查找高亮；构建 `dist/Markdown Studio.app`（74 MB），分发 zip 28 MB，arm64 / ad-hoc 签名。
+- **v1.1.1**（2026-11-11）：修复 Finder 双击/“打开方式”提示 “cannot open files in the Markdown Text format”；补全 `CFBundleDocumentTypes`（md/markdown/mdown Owner、txt Alternate）与 `application:openURLs:` 处理，支持启动时与运行中打开文档。

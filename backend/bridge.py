@@ -50,6 +50,13 @@ class DesktopBridge:
         self._closing_save_started = False
         self._last_session_state = None
 
+        # Finder / LaunchServices "open document" Apple events. main.py
+        # installs an NSAppleEventManager handler that queues paths here;
+        # get_initial_state() adopts the first one at startup and the frontend
+        # polls consume_open_files() for files opened while the app is running.
+        self._pending_open_files: List[str] = []
+        self._open_files_lock = threading.Lock()
+
     def set_window(self, window):
         """Bind the active pywebview window instance.
 
@@ -447,6 +454,36 @@ class DesktopBridge:
         }
 
     # -------------------------------------------------------------------------
+    # Finder / LaunchServices open-document events
+    # -------------------------------------------------------------------------
+    def queue_open_files(self, paths: List[str]) -> Dict[str, Any]:
+        """Queue document paths received from macOS open-document events."""
+        cleaned = []
+        for raw in paths or []:
+            try:
+                path = os.path.abspath(os.path.expanduser(str(raw)))
+            except Exception:
+                continue
+            if os.path.isfile(path):
+                cleaned.append(path)
+        if not cleaned:
+            return {"ok": True, "data": {"queued": 0}}
+        with self._open_files_lock:
+            self._pending_open_files.extend(cleaned)
+        return {"ok": True, "data": {"queued": len(cleaned)}}
+
+    def take_open_files(self) -> List[str]:
+        """Drain and return queued open-document paths (internal)."""
+        with self._open_files_lock:
+            paths = list(self._pending_open_files)
+            self._pending_open_files.clear()
+        return paths
+
+    def consume_open_files(self) -> Dict[str, Any]:
+        """JS API: drain document paths opened from Finder while running."""
+        return {"ok": True, "data": {"paths": self.take_open_files()}}
+
+    # -------------------------------------------------------------------------
     # Initial State
     # -------------------------------------------------------------------------
     def get_initial_state(self) -> Dict[str, Any]:
@@ -458,6 +495,17 @@ class DesktopBridge:
 
         welcome_path = os.path.join(self.project_root, "sample", "welcome.md")
         workspace_dir = os.path.join(self.project_root, "sample")
+
+        # Adopt a Finder-open document as the explicit startup target. Extra
+        # documents stay queued for the frontend poller.
+        pending_paths = self.take_open_files()
+        if pending_paths:
+            if self.initial_file:
+                self.queue_open_files(pending_paths)
+            else:
+                self.initial_file = pending_paths[0]
+                if len(pending_paths) > 1:
+                    self.queue_open_files(pending_paths[1:])
 
         # If user opened an explicit file from CLI, prioritize that
         target_file = self.initial_file if (self.initial_file and os.path.exists(self.initial_file)) else welcome_path

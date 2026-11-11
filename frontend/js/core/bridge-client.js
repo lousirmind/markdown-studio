@@ -519,6 +519,10 @@
       return callBridge('loadSession');
     },
 
+    async consumeOpenFiles() {
+      return callBridge('consumeOpenFiles');
+    },
+
     /**
      * Delete the persisted session snapshot.
      * @returns {Promise<{ success: boolean, cleared?: boolean, error?: string }>}

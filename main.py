@@ -16,6 +16,64 @@ import webview
 from backend.bridge import DesktopBridge
 from backend import config_service, file_service, asset_service
 
+# Keep the PyObjC delegate alive for the lifetime of the process.
+_open_files_delegate = None
+
+def _install_open_files_delegate(bridge):
+    """Attach Finder open-file handling to pywebview's NSApplication delegate.
+
+    Modern macOS delivers double-clicked documents to the application delegate
+    (application:openFiles:/openURLs:) rather than the legacy odoc Apple event.
+    pywebview creates its delegate lazily on the first window; pre-seeding
+    BrowserView._shared_app_delegate lets us subclass it without touching
+    pywebview internals.
+    """
+    global _open_files_delegate
+    try:
+        from webview.platforms import cocoa
+    except Exception as exc:
+        return None
+
+    base = cocoa.BrowserView.AppDelegate
+
+    class _OpenFilesAppDelegate(base):
+        def application_openFiles_(self, application, filenames):
+            try:
+                paths = [str(p) for p in (filenames or [])]
+                bridge.queue_open_files(paths)
+            except Exception:
+                pass
+
+        def application_openFile_(self, application, filename):
+            try:
+                bridge.queue_open_files([str(filename)])
+            except Exception:
+                pass
+
+        def application_openURLs_(self, application, urls):
+            try:
+                paths = []
+                for url in urls or []:
+                    path = None
+                    try:
+                        if url.isFileURL():
+                            path = url.path()
+                    except Exception:
+                        path = None
+                    if path:
+                        paths.append(str(path))
+                bridge.queue_open_files(paths)
+            except Exception:
+                pass
+
+    try:
+        delegate = _OpenFilesAppDelegate.alloc().init()
+        cocoa.BrowserView._shared_app_delegate = delegate
+        _open_files_delegate = delegate
+        return delegate
+    except Exception as exc:
+        return None
+
 
 def run_headless_check() -> int:
     """
@@ -263,7 +321,8 @@ def main():
         action="store_true",
         help="Boot the real frontend in a hidden window and verify it renders",
     )
-    args = parser.parse_args()
+    # macOS may pass legacy process-serial-number arguments (-psn_...).
+    args, _ignored = parser.parse_known_args()
 
     if args.headless_check:
         sys.exit(run_headless_check())
@@ -282,6 +341,10 @@ def main():
 
     # Initialize Desktop Bridge Facade
     bridge = DesktopBridge(initial_file=initial_file)
+
+    # Finder / LaunchServices deliver double-clicked documents through the
+    # NSApplication delegate (application:openURLs: / openFiles:).
+    _install_open_files_delegate(bridge)
 
     # Locate bundled resources. When frozen by PyInstaller the app resources
     # live in sys._MEIPASS (Contents/Frameworks in the .app bundle).

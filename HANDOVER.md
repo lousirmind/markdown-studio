@@ -144,6 +144,7 @@ flowchart TD
 | `get_pdf_export_result` | `()` | `{"status", "path", "result": {"ok", "data": {"path", "size", "pages"}}}` | 轮询 PDF 导出状态与结果 |
 | `save_session` / `load_session` / `clear_session` | `(state)` / `()` / `()` | 标准 `{ok, data}` | 会话持久化（~/.markdown_studio_session.json，原子写、体积保护） |
 | `get_drop_status` | `()` | `{registered, num_listeners, js_channel}` | 拖拽通道注册状态（诊断/验收） |
+| `consume_open_files` | `()` | `{"paths": [...]}` | 取出 Finder 双击/“打开方式”排队的文档路径（前端轮询写入标签） |
 | `handle_drop_event` | `(event)` | 文档/文件夹/图片/不支持分类摘要 | pywebview 原生 drop 入口，转发 file:open-request / folder:open-request / Toast |
 | `select_file_dialog` | `()` | `{"path": str}` | 调起 macOS 原生文件选择对话框（支持取消检测） |
 | `select_folder_dialog`| `()` | `{"path": str}` | 调起 macOS 原生工作区文件夹选择对话框 |
@@ -425,9 +426,15 @@ BIN="dist/Markdown Studio.app/Contents/MacOS/Markdown Studio"
 - **现象**：T6 会话保存在 `window.events.closing` 中直接调用 `window.evaluate_js()`，Cocoa 主线程会阻塞等待 semaphore，而 callAfter 投递的回调同样排在同一条主线程 → 关闭卡死。
 - **解决方案**：在 closing 钩子里改用 runloop 泵动的 `WKWebView.evaluateJavaScript_completionHandler_`（1.5s 上限）同步读取 `window.__mdStudioSessionStateJSON()`，非主线程才走普通 evaluate_js；读取失败时回退到最近一次前端推送的缓存状态，且异常不阻断关闭。实测真实关闭 7–8ms 完成。
 
+
+### 坑 9：Finder 双击 .md 提示无法打开 —— Info.plist 缺文档类型 + 未处理 openURLs
+- **现象**：应用可从命令行启动并打开文件，但双击 .md 提示 “Markdown Studio cannot open files in the ‘Markdown Text’ format”，且直接启动只显示 welcome。
+- **原因**：PyInstaller 生成的 Info.plist 没有 `CFBundleDocumentTypes`，LaunchServices 拒绝把 `net.daringfireball.markdown` 文档交给应用；同时 pywebview 的 AppDelegate 不实现 `application:openURLs:/openFiles:`，路径不会进入前端。
+- **解决**：构建后由 `packaging/patch_info_plist.py` 写入 Markdown UTI（md/markdown/mdown，Owner）与 txt（public.plain-text，Alternate）；`main.py` 在 `webview.start` 前预置继承 pywebview AppDelegate 的子类，接收 openURLs 并 `bridge.queue_open_files()`；启动首个文档作为 target，其余由前端 600ms 轮询 `consume_open_files` 开标签。验证：`open -a` 启动即打开、运行中再开 md/txt/markdown 均新增标签。
+
 ---
 
-## 8. Phase 8：交互能力增强记录（2026-11，v1.1.0）
+## 8. Phase 8：交互能力增强记录（2026-11，v1.1.0 → v1.1.1）
 
 本轮在 Phase 7 基础上完成 7 项功能，均经 Lead 独立质检 + 三套回归（headless 12/12、E2E 15/15、显示/性能验收）：
 
@@ -440,5 +447,6 @@ BIN="dist/Markdown Studio.app/Contents/MacOS/Markdown Studio"
 | 标签排序 + 最近文件（T4） | store.moveTab 原地重排 + tab:reordered；最近文件偏好（20 条去重、最新在前）+ 顶栏弹层 | 拖拽后 DOM/state/session 顺序一致且 active 不变；最近文件顺序/去重/落盘/重启保留/缺失置灰/清除 |
 | 查找替换（T7） | 源码级检索，四模式通用；命中高亮（CSS Custom Highlight API，SV 高亮源码窗）；applyExternalContent 同步编辑器/store/自动保存；正则/整词/大小写 | 计数与循环、替换一处/全部、磁盘与 store 一致、非法正则、标签切换重算、Cmd+F/按钮入口 |
 | 快速打开/命令面板（T8） | 工作区文件索引 + 子序列模糊匹配；18 条命令注册表；Cmd+P / Cmd+Shift+P / “>” 前缀 | 按钮/Cmd+P 打开、模糊命中并打开、命令模式、主题与模式切换、无结果、遮罩关闭、900px 适配 |
+| Finder 双击打开（v1.1.1） | Info.plist 补 `CFBundleDocumentTypes` / UTI；NSApplication 代理实现 `application:openURLs:/openFiles:`，队列 + 前端轮询开标签 | `open -a` 与运行中 AppleScript 打开 md/txt/markdown 均成功；启动时只打开指定文档；0 错误 |
 
 版本：应用 `Markdown Studio.app` 升至 **1.1.0**（arm64、ad-hoc 签名、zip 分发）。

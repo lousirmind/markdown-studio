@@ -132,9 +132,37 @@
       }
 
       console.info('[App] Markdown Studio bootstrap completed.');
+      startOpenFilePoller();
     } catch (err) {
       console.error('[App] Fatal error during bootstrap:', err);
     }
+  }
+
+  // Finder documents opened while the app is already running arrive as Apple
+  // events; the Python side queues them and this poller turns them into tabs.
+  let openFilePollTimer = null;
+  function startOpenFilePoller() {
+    if (openFilePollTimer || !window.BridgeClient) return;
+    if (typeof window.BridgeClient.consumeOpenFiles !== 'function') return;
+    let busy = false;
+    openFilePollTimer = setInterval(async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const res = await window.BridgeClient.consumeOpenFiles();
+        const data = res && (res.data !== undefined ? res.data : res);
+        const paths = (data && Array.isArray(data.paths)) ? data.paths : [];
+        for (let i = 0; i < paths.length; i++) {
+          if (window.AppBus) {
+            window.AppBus.emit('file:open-request', { path: paths[i] });
+          }
+        }
+      } catch (err) {
+        // Bridge may not be ready yet; retry on the next tick.
+      } finally {
+        busy = false;
+      }
+    }, 600);
   }
 
   // Ensure DOM is ready before bootstrapping
