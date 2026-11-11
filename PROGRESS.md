@@ -2,6 +2,37 @@
 
 > 记录当前交付状态、质量基线、已知限制与后续计划。更新于 2026-11-11。
 
+## 当前状态（2026-11-11）
+
+| 项目 | 状态 |
+| :--- | :--- |
+| 版本 | **v1.1.1**（含查找高亮、Finder 双击/打开方式修复） |
+| 本地应用 | `/Applications/Markdown Studio.app`（1.1.1，已替换旧版） |
+| GitHub 仓库 | https://github.com/lousirmind/markdown-studio |
+| 最新提交 | `4c6fef8 fix(finder): 支持 Finder 双击与打开方式打开 Markdown 文档（v1.1.1）` |
+| 发布 | [v1.1.1](https://github.com/lousirmind/markdown-studio/releases/tag/v1.1.1) / [v1.1.0](https://github.com/lousirmind/markdown-studio/releases/tag/v1.1.0) |
+| 工作区 | 干净（dist/build 均被忽略，不入库） |
+| 下一步 | 等待 T9 七个决策点确认后，从 T9-0 开工 |
+
+### 本轮会话完成清单
+
+1. Finder 拖拽打开（文档/文件夹，图片仅粘贴）
+2. 图片灯箱显示修复 + 实时缩放百分比
+3. 启动恢复上次标签与未保存内容
+4. PDF 导出选项（纸张/方向/边距/页眉页脚/缩放）
+5. 标签拖拽排序 + 最近文件
+6. 全文查找替换 + 查找命中高亮
+7. 快速打开 / 命令面板（Cmd+P / Cmd+Shift+P）
+8. Finder 双击/右键“打开方式”打开 .md/.txt（v1.1.1 修复）
+9. v1.1.0 / v1.1.1 打包、签名、GitHub 发布
+
+### 继续开发
+
+- 启动开发版：`python3 main.py`
+- 自检：`python3 main.py --headless-check`；端到端：`python3 test_e2e.py`
+- 重新打包：`./packaging/build_app.command`，产物在 `dist/`
+
+
 ## 当前版本：v1.1.1
 
 | 能力 | 状态 | 提交 |
@@ -15,7 +46,7 @@
 | 查找命中高亮（CSS Custom Highlight API） | ✅ | `dd62749` |
 | 快速打开 / 命令面板（Cmd+P / Cmd+Shift+P） | ✅ | `eebae0c` |
 | 文档与 v1.1.0 发布配置 | ✅ | `6233f12` |
-| Finder 双击/“打开方式”打开文档（Info.plist UTI + NSApplication openURLs） | ✅ | v1.1.1 |
+| Finder 双击/“打开方式”打开文档（Info.plist UTI + NSApplication openURLs） | ✅ | `4c6fef8` |
 
 ### 质量基线（最终代码）
 
@@ -86,3 +117,5 @@
 
 - **v1.1.0**（2026-11-11）：7 项交互增强 + 查找高亮；构建 `dist/Markdown Studio.app`（74 MB），分发 zip 28 MB，arm64 / ad-hoc 签名。
 - **v1.1.1**（2026-11-11）：修复 Finder 双击/“打开方式”提示 “cannot open files in the Markdown Text format”；补全 `CFBundleDocumentTypes`（md/markdown/mdown Owner、txt Alternate）与 `application:openURLs:` 处理，支持启动时与运行中打开文档。
+  - 提交：`4c6fef8`；安装包：`dist/Markdown Studio-1.1.1.zip`（29 MB，arm64 / ad-hoc 签名）；
+  - 发布：https://github.com/lousirmind/markdown-studio/releases/tag/v1.1.1
