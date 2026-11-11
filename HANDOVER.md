@@ -438,7 +438,7 @@ BIN="dist/Markdown Studio.app/Contents/MacOS/Markdown Studio"
 | 会话恢复（T6） | session_service + session-manager；关闭时同步快照；脏内容作为缓冲恢复；缺失文件跳过或用“已恢复”草稿兜底；launched_with_file 不恢复 | 真实关闭捕获关闭前修改、重启恢复标签/脏内容/active/工作区/模式、缺失策略、无会话回退、显式文件只开指定 |
 | PDF 导出选项（T3） | 纸张/方向/边距/页眉页脚/缩放规范化后映射 NSPrintInfo；横向用纵向尺寸 + orientation；选项持久化 | MediaBox 实测 A4 595×842、Letter 横向 792×612、A5 419×595；非法值回退；UI 持久化与导出透传 |
 | 标签排序 + 最近文件（T4） | store.moveTab 原地重排 + tab:reordered；最近文件偏好（20 条去重、最新在前）+ 顶栏弹层 | 拖拽后 DOM/state/session 顺序一致且 active 不变；最近文件顺序/去重/落盘/重启保留/缺失置灰/清除 |
-| 查找替换（T7） | 源码级检索，四模式通用；applyExternalContent 同步编辑器/store/自动保存；正则/整词/大小写 | 计数与循环、替换一处/全部、磁盘与 store 一致、非法正则、标签切换重算、Cmd+F/按钮入口 |
+| 查找替换（T7） | 源码级检索，四模式通用；命中高亮（CSS Custom Highlight API，SV 高亮源码窗）；applyExternalContent 同步编辑器/store/自动保存；正则/整词/大小写 | 计数与循环、替换一处/全部、磁盘与 store 一致、非法正则、标签切换重算、Cmd+F/按钮入口 |
 | 快速打开/命令面板（T8） | 工作区文件索引 + 子序列模糊匹配；18 条命令注册表；Cmd+P / Cmd+Shift+P / “>” 前缀 | 按钮/Cmd+P 打开、模糊命中并打开、命令模式、主题与模式切换、无结果、遮罩关闭、900px 适配 |
 
 版本：应用 `Markdown Studio.app` 升至 **1.1.0**（arm64、ad-hoc 签名、zip 分发）。

@@ -1998,80 +1998,27 @@
   font-size: 10px;
   line-height: 1.5;
 }
-
-.cp-match {
-  color: var(--accent-color);
-  font-weight: 600;
+/* ==========================================================================
+   Search replacement match highlighting (CSS Custom Highlight API)
+   ========================================================================== */
+::highlight(ms-search-match) {
+  background-color: rgba(255, 213, 79, 0.55);
+  color: inherit;
 }
 
-.cp-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 130px;
-  padding: 22px 16px;
-  text-align: center;
+::highlight(ms-search-current) {
+  background-color: rgba(255, 152, 0, 0.95);
+  color: #1a1a1a;
 }
 
-.cp-empty-title {
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 600;
+/* Fallback marks for WebKit builds without CSS.highlights (reader DOM only) */
+.sr-dom-mark {
+  background-color: rgba(255, 213, 79, 0.55);
+  color: inherit;
+  border-radius: 2px;
 }
 
-.cp-empty-hint {
-  color: var(--text-muted);
-  font-size: 11.5px;
-  line-height: 1.5;
+.sr-dom-mark-current {
+  background-color: rgba(255, 152, 0, 0.95);
+  color: #1a1a1a;
 }
-
-.cp-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-shrink: 0;
-  padding: 6px 12px;
-  border-top: 1px solid var(--border-subtle);
-  background-color: var(--bg-secondary);
-  color: var(--text-muted);
-  font-size: 11px;
-  user-select: none;
-}
-
-.cp-count {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.cp-hints {
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
-/* Keep the palette usable in narrow windows (e.g. 900px wide). */
-@media (max-width: 900px) {
-  .command-palette {
-    padding: 8vh 12px 20px;
-  }
-
-  .cp-panel {
-    width: calc(100vw - 24px);
-    max-height: 72vh;
-  }
-}
-
-@media (max-width: 640px) {
-  .cp-hints {
-    display: none;
-  }
-
-  .cp-item {
-    padding: 8px;
-  }
-}
-

@@ -148,6 +148,7 @@
       state.matches = [];
       state.current = -1;
       render();
+      clearDomHighlights();
       return;
     }
 
@@ -157,6 +158,7 @@
       state.current = -1;
       state.error = '正则表达式无效：' + built.error;
       render();
+      clearDomHighlights();
       return;
     }
 
@@ -174,6 +176,7 @@
     }
 
     render();
+    applyDomHighlights();
     if (opts.reveal) revealCurrent();
   }
 
@@ -184,6 +187,7 @@
     }
     state.current = (state.current + 1) % state.matches.length;
     render();
+    applyDomHighlights();
     revealCurrent();
   }
 
@@ -195,6 +199,7 @@
     const total = state.matches.length;
     state.current = (state.current - 1 + total) % total;
     render();
+    applyDomHighlights();
     revealCurrent();
   }
 
@@ -302,7 +307,10 @@
     const selectorsByMode = {
       ir: ['.vditor-ir .vditor-reset'],
       wysiwyg: ['.vditor-wysiwyg .vditor-reset'],
-      sv: ['.vditor-sv .vditor-reset', '.vditor-preview .vditor-reset'],
+      // SV mode: the source pane itself is a contenteditable <pre> with text
+      // nodes (Vditor's preview is lazily paginated), so highlight the source;
+      // fall back to the preview container when the source is unavailable.
+      sv: ['.vditor-sv', '.vditor-preview .vditor-reset'],
     };
     const selectors = selectorsByMode[mode] || [];
     for (let i = 0; i < selectors.length; i++) {
@@ -312,6 +320,174 @@
     return container.querySelector('.vditor-reset');
   }
 
+  // -------------------------------------------------------------------------
+  // Rendered-DOM highlighting (CSS Custom Highlight API)
+  // -------------------------------------------------------------------------
+  // The panel counts matches in the Markdown source; for the visual highlight we
+  // scan the rendered text nodes (same query/options) and register ranges with
+  // CSS.highlights. This never mutates the editor DOM, so Vditor keeps working.
+  const HL_MATCH = 'ms-search-match';
+  const HL_CURRENT = 'ms-search-current';
+  const HL_MAX_RANGES = 3000;
+  let highlightRanges = [];
+  let fallbackMarks = [];
+
+  function supportsHighlightApi() {
+    return !!(window.CSS && window.CSS.highlights && typeof window.Highlight === 'function');
+  }
+
+  function collectTextSegments(root) {
+    const segments = [];
+    let fullText = '';
+    let walker;
+    try {
+      walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+        acceptNode(node) {
+          const parent = node.parentElement;
+          if (parent && (parent.tagName === 'SCRIPT' || parent.tagName === 'STYLE')) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          return NodeFilter.FILTER_ACCEPT;
+        },
+      });
+    } catch (e) {
+      return { segments: segments, fullText: fullText };
+    }
+    let node;
+    while ((node = walker.nextNode())) {
+      const value = node.nodeValue || '';
+      if (!value) continue;
+      segments.push({ node: node, start: fullText.length, end: fullText.length + value.length });
+      fullText += value;
+    }
+    return { segments: segments, fullText: fullText };
+  }
+
+  function findSegmentAt(segments, offset) {
+    let low = 0;
+    let high = segments.length - 1;
+    while (low <= high) {
+      const mid = (low + high) >> 1;
+      const seg = segments[mid];
+      if (offset < seg.start) {
+        high = mid - 1;
+      } else if (offset >= seg.end) {
+        low = mid + 1;
+      } else {
+        return seg;
+      }
+    }
+    return null;
+  }
+
+  function rangeFromOffsets(segments, start, end) {
+    if (end <= start) return null;
+    const startSeg = findSegmentAt(segments, start);
+    const endSeg = findSegmentAt(segments, end - 1);
+    if (!startSeg || !endSeg) return null;
+    try {
+      const range = document.createRange();
+      range.setStart(startSeg.node, start - startSeg.start);
+      range.setEnd(endSeg.node, end - endSeg.start);
+      return range;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function clearDomHighlights() {
+    highlightRanges = [];
+    try {
+      if (supportsHighlightApi()) {
+        window.CSS.highlights.delete(HL_MATCH);
+        window.CSS.highlights.delete(HL_CURRENT);
+      }
+    } catch (e) {}
+    fallbackMarks.forEach(function (mark) {
+      try {
+        const parent = mark.parentNode;
+        if (!parent) return;
+        parent.replaceChild(document.createTextNode(mark.textContent || ''), mark);
+        parent.normalize();
+      } catch (e) {}
+    });
+    fallbackMarks = [];
+  }
+
+  function applyFallbackMarks(root, ranges, currentIndex) {
+    // Progressive fallback for WebKit builds without CSS.highlights: only the
+    // reader DOM is safe to mutate (editor modes are contenteditable).
+    const mode = window.AppStore ? window.AppStore.getState().editorMode : 'ir';
+    if (mode !== 'reader') return;
+    ranges.forEach(function (range, index) {
+      try {
+        const mark = document.createElement('mark');
+        mark.className = index === currentIndex ? 'sr-dom-mark sr-dom-mark-current' : 'sr-dom-mark';
+        range.surroundContents(mark);
+        fallbackMarks.push(mark);
+      } catch (e) {}
+    });
+  }
+
+  function applyDomHighlights() {
+    clearDomHighlights();
+    if (!state.open) return;
+
+    const query = dom.findInput ? dom.findInput.value : '';
+    if (!query) return;
+
+    const root = getSearchRoot();
+    if (!root) return;
+
+    const collected = collectTextSegments(root);
+    if (!collected.fullText) return;
+
+    const built = buildRegex(query, state);
+    if (built.error) return;
+
+    const result = findMatches(collected.fullText, built.regex, state.wholeWord);
+    const ranges = [];
+    for (let i = 0; i < result.matches.length && ranges.length < HL_MAX_RANGES; i++) {
+      const match = result.matches[i];
+      const range = rangeFromOffsets(collected.segments, match.start, match.end);
+      if (range) ranges.push(range);
+    }
+    highlightRanges = ranges;
+    if (!ranges.length) return;
+
+    const currentIndex = state.current >= 0 ? Math.min(state.current, ranges.length - 1) : 0;
+    if (supportsHighlightApi()) {
+      try {
+        window.CSS.highlights.set(HL_MATCH, new window.Highlight(...ranges));
+        window.CSS.highlights.set(HL_CURRENT, new window.Highlight(ranges[currentIndex]));
+      } catch (e) {
+        // Very large highlight sets can fail; visual highlight is best-effort.
+      }
+    } else {
+      applyFallbackMarks(root, ranges, currentIndex);
+    }
+  }
+
+  function scrollToHighlight(index) {
+    if (!highlightRanges.length) return false;
+    const range = highlightRanges[Math.max(0, Math.min(index, highlightRanges.length - 1))];
+    if (!range) return false;
+    try {
+      const rect = range.getBoundingClientRect();
+      const topLimit = 80;
+      const bottomLimit = window.innerHeight - 80;
+      if (rect && (rect.top < topLimit || rect.bottom > bottomLimit || rect.height === 0)) {
+        const node = range.startContainer;
+        const block = closestBlock(node && node.parentElement ? node.parentElement : node);
+        if (block && typeof block.scrollIntoView === 'function') {
+          block.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+      }
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
   /**
    * Best-effort "make the current match visible". In reader mode the rendered
    * DOM contains the text directly; in editor modes it usually does too. When
@@ -390,6 +566,9 @@
   }
 
   function revealCurrent() {
+    // Prefer the rendered highlight range (exact position); fall back to the
+    // source-text heuristic when the rendered DOM does not contain the match.
+    if (scrollToHighlight(state.current)) return;
     const match = state.current >= 0 ? state.matches[state.current] : null;
     if (!match || !match.text) return;
     revealInDom(match.text, occurrenceOrdinal(state.current, match.text), state.caseSensitive);
@@ -568,6 +747,7 @@
     state.open = false;
     state.error = '';
     state.message = '';
+    clearDomHighlights();
     if (dom.panel) {
       dom.panel.classList.add('hidden');
       dom.panel.setAttribute('aria-hidden', 'true');
@@ -726,6 +906,8 @@
       window.AppBus.on('tab:switched', handleTabContextChanged);
       window.AppBus.on('tab:closed', handleTabContextChanged);
       window.AppBus.on('editor:content-changed', handleContentChanged);
+      window.AppBus.on('editor:mode-changed', handleContentChanged);
+      window.AppBus.on('editor:rendered', handleContentChanged);
     }
   }
 
